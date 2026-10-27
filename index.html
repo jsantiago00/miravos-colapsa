@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Visor Decodificador</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151c;
+    --panel-2: #1a1e28;
+    --line: #262b38;
+    --text: #e8ebf2;
+    --muted: #8a92a6;
+    --accent: #3fe0e6;
+    --cyan: #00ffff;
+    --blue: #3b5cff;
+    --yellow: #ffdc00;
+    --red: #ff3b3b;
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  body {
+    display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh;
+  }
+
+  /* ---------- Escenario ---------- */
+  #stage {
+    position: relative; flex: 1 1 auto; min-height: 0;
+    background: #000; touch-action: manipulation;
+  }
+  #view {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; display: block; cursor: crosshair;
+  }
+  #topbar {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: calc(var(--sat) + 8px) calc(var(--sar) + 12px) 8px calc(var(--sal) + 12px);
+    display: flex; align-items: center; gap: 8px;
+    background: linear-gradient(#000c, #0000);
+    pointer-events: none;
+  }
+  #topbar > * { pointer-events: auto; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 999px;
+    background: #000a; border: 1px solid #ffffff22;
+    font-size: 13px; white-space: nowrap;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  #source { color: var(--muted); }
+  #topbar .spacer { flex: 1; }
+  #resetHue {
+    border: 1px solid #ffffff22; background: #000a; color: var(--text);
+    border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 13px;
+  }
+  #hint {
+    position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+    font-size: 12px; color: #fffb; background: #0008; padding: 4px 10px;
+    border-radius: 999px; pointer-events: none; white-space: nowrap;
+  }
+  #frozenBadge {
+    position: absolute; top: calc(var(--sat) + 48px); left: 50%; transform: translateX(-50%);
+    background: #ffdc00; color: #000; font-weight: 700; font-size: 12px;
+    padding: 3px 10px; border-radius: 999px; letter-spacing: .05em; display: none;
+  }
+  #toast {
+    position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%) scale(.95);
+    background: #000d; border: 1px solid #ffffff33; border-radius: 14px;
+    padding: 12px 18px; font-size: 16px; font-weight: 600; text-align: center;
+    opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none;
+    max-width: 85%;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #tapMark {
+    position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px;
+    border: 2px solid #fff; border-radius: 6px; box-shadow: 0 0 0 1px #000;
+    pointer-events: none; opacity: 0; transition: opacity .4s;
+  }
+
+  /* ---------- Panel ---------- */
+  #panel {
+    flex: 0 0 auto; background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px calc(var(--sar) + 10px) calc(var(--sab) + 10px) calc(var(--sal) + 10px);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #modes {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+  }
+  .mode {
+    min-height: 58px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--text); font: inherit; font-size: 12px;
+    font-weight: 600; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 5px; padding: 6px 2px;
+  }
+  .mode .sw { width: 22px; height: 22px; border-radius: 50%; border: 1px solid #fff3; }
+  .mode.active { border-color: var(--accent); background: #173338; box-shadow: inset 0 0 0 1px var(--accent); }
+  .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+  .slider label {
+    display: flex; justify-content: space-between; font-size: 12px; color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .slider label b { color: var(--text); font-weight: 600; }
+  input[type=range] {
+    width: 100%; height: 28px; margin: 0; background: transparent;
+    -webkit-appearance: none; appearance: none;
+  }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--line); }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--line); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 24px; height: 24px; margin-top: -9px;
+    border-radius: 50%; background: var(--accent); border: 3px solid var(--panel);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--panel);
+  }
+  #actions { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 6px; }
+  .btn {
+    min-height: 50px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--text); font: inherit; font-weight: 700;
+    font-size: 14px; padding: 0 8px;
+  }
+  .btn.primary { background: var(--accent); color: #002326; border-color: var(--accent); }
+  .btn.on { background: #ffdc00; color: #000; border-color: #ffdc00; }
+  .btn:disabled { opacity: .4; }
+  .btn:active, .mode:active { transform: scale(.97); }
+  #fileInput { display: none; }
+
+  @media (min-width: 700px) {
+    #panel { max-width: 720px; width: 100%; margin: 0 auto; border-radius: 16px 16px 0 0; border: 1px solid var(--line); }
+    .mode { font-size: 13px; }
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    body { flex-direction: row; }
+    #panel { width: 300px; max-width: 300px; border-top: 0; border-left: 1px solid var(--line); overflow-y: auto;
+             padding-top: calc(var(--sat) + 10px); border-radius: 0; margin: 0; }
+    #modes { grid-template-columns: repeat(3, 1fr); }
+    .mode { min-height: 48px; }
+    .sliders { grid-template-columns: 1fr; }
+    #actions { grid-template-columns: 1fr 1fr; }
+    #camBtn { grid-column: span 2; }
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div id="tapMark"></div>
+  <div id="topbar">
+    <span class="chip" id="source">Demo</span>
+    <span class="spacer"></span>
+    <span class="chip"><span class="dot" style="background:var(--cyan)"></span><span id="hueCyan">185°</span></span>
+    <span class="chip"><span class="dot" style="background:var(--blue)"></span><span id="hueBlue">228°</span></span>
+    <button id="resetHue" title="Restablecer tonos">↺</button>
+  </div>
+  <div id="frozenBadge">CONGELADO</div>
+  <div id="hint">Tocá la imagen para calibrar el color</div>
+  <div id="toast"></div>
+</div>
+
+<div id="panel">
+  <div id="modes">
+    <button class="mode active" data-mode="0"><span class="sw" style="background:linear-gradient(135deg,#ff5a5a,#3fe0e6 50%,#3b5cff)"></span>Normal</button>
+    <button class="mode" data-mode="1"><span class="sw" style="background:#d22"></span>Filtro rojo</button>
+    <button class="mode" data-mode="2"><span class="sw" style="background:var(--cyan)"></span>Solo cian</button>
+    <button class="mode" data-mode="3"><span class="sw" style="background:var(--blue)"></span>Solo azul</button>
+    <button class="mode" data-mode="4"><span class="sw" style="background:linear-gradient(90deg,var(--cyan) 50%,var(--yellow) 50%)"></span>Separar</button>
+  </div>
+
+  <div class="sliders">
+    <div class="slider">
+      <label for="tol">Tolerancia de tono <b id="tolVal">22°</b></label>
+      <input type="range" id="tol" min="5" max="60" value="22">
+    </div>
+    <div class="slider">
+      <label for="sat">Saturación mín. <b id="satVal">25%</b></label>
+      <input type="range" id="sat" min="0" max="80" value="25">
+    </div>
+  </div>
+
+  <div id="actions">
+    <button class="btn primary" id="camBtn">Activar cámara</button>
+    <button class="btn" id="freezeBtn" disabled>Congelar</button>
+    <button class="btn" id="photoBtn">Sacar foto</button>
+  </div>
+  <input type="file" id="fileInput" accept="image/*" capture="environment">
+</div>
+
+<video id="video" playsinline muted autoplay style="display:none"></video>
+
+<script>
+(() => {
+  'use strict';
+
+  const MAX_SIDE = 720;
+  const V_MIN = 40;               // brillo mínimo (0-255) para considerar un píxel
+  const DEFAULT_HUE = { cyan: 185, blue: 228 };
+  const MODE_NAMES = ['Normal', 'Filtro rojo', 'Solo cian', 'Solo azul', 'Separar'];
+
+  const $ = id => document.getElementById(id);
+  const view = $('view');
+  const vctx = view.getContext('2d');
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  const video = $('video');
+
+  const state = {
+    mode: 0,
+    tol: 22,
+    sat: 25,
+    hue: { ...DEFAULT_HUE },
+    source: 'demo',     // 'demo' | 'camera' | 'photo'
+    frozen: false,
+    stream: null,
+  };
+
+  let raw = null;       // ImageData del frame original
+  let out = null;       // ImageData procesada
+
+  // ---------- Utilidades ----------
+  let toastTimer;
+  function toast(msg, ms = 1800) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  function rgbToHsv(r, g, b) {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    let h = 0;
+    if (d > 0) {
+      if (max === r) { h = (g - b) / d; if (h < 0) h += 6; }
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+    }
+    return { h, s: max ? d / max : 0, v: max };
+  }
+
+  function hueDist(a, b) {
+    const d = Math.abs(a - b) % 360;
+    return d > 180 ? 360 - d : d;
+  }
+
+  function updateHueLabels() {
+    $('hueCyan').textContent = Math.round(state.hue.cyan) + '°';
+    $('hueBlue').textContent = Math.round(state.hue.blue) + '°';
+  }
+
+  function setSourceLabel() {
+    const names = { demo: 'Demo', camera: state.frozen ? 'Cámara · pausada' : 'Cámara en vivo', photo: 'Foto' };
+    $('source').textContent = names[state.source] + ' · ' + MODE_NAMES[state.mode];
+  }
+
+  // ---------- Carga de fuentes ----------
+  function setSize(w, h) {
+    const k = Math.min(1, MAX_SIDE / Math.max(w, h));
+    const W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
+    if (work.width !== W || work.height !== H) {
+      work.width = W; work.height = H;
+      view.width = W; view.height = H;
+      out = vctx.createImageData(W, H);
+    } else if (!out) {
+      out = vctx.createImageData(W, H);
+    }
+  }
+
+  function loadStatic(img, w, h) {
+    setSize(w, h);
+    wctx.drawImage(img, 0, 0, work.width, work.height);
+    raw = wctx.getImageData(0, 0, work.width, work.height);
+    render();
+  }
+
+  // ---------- Procesamiento ----------
+  function render() {
+    if (!raw) return;
+    const s = raw.data, o = out.data, n = s.length;
+    const mode = state.mode;
+
+    if (mode === 0) {
+      o.set(s);
+    } else if (mode === 1) {
+      for (let i = 0; i < n; i += 4) {
+        const r = s[i];
+        o[i] = r; o[i + 1] = r; o[i + 2] = r; o[i + 3] = 255;
+      }
+    } else {
+      const tol = state.tol, smin = state.sat / 100;
+      const hc = state.hue.cyan, hb = state.hue.blue;
+      for (let i = 0; i < n; i += 4) {
+        const r = s[i], g = s[i + 1], b = s[i + 2];
+        const max = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        const min = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        const d = max - min;
+        let m = 0; // 0 = nada, 1 = cian, 2 = azul
+
+        if (max >= V_MIN && d > 0 && d >= smin * max) {
+          let h;
+          if (max === r) { h = (g - b) / d; if (h < 0) h += 6; }
+          else if (max === g) h = (b - r) / d + 2;
+          else h = (r - g) / d + 4;
+          h *= 60;
+          let dc = h - hc; if (dc < 0) dc = -dc; if (dc > 180) dc = 360 - dc;
+          let db = h - hb; if (db < 0) db = -db; if (db > 180) db = 360 - db;
+          if (mode === 2) { if (dc <= tol) m = 1; }
+          else if (mode === 3) { if (db <= tol) m = 2; }
+          else {
+            if (dc <= tol && (db > tol || dc <= db)) m = 1;
+            else if (db <= tol) m = 2;
+          }
+        }
+
+        if (mode === 4) {
+          if (m === 1) { o[i] = 0; o[i + 1] = 255; o[i + 2] = 255; }
+          else if (m === 2) { o[i] = 255; o[i + 1] = 220; o[i + 2] = 0; }
+          else { o[i] = 0; o[i + 1] = 0; o[i + 2] = 0; }
+        } else if (m === 1) {
+          o[i] = 0; o[i + 1] = 255; o[i + 2] = 255;
+        } else if (m === 2) {
+          o[i] = 40; o[i + 1] = 90; o[i + 2] = 255;
+        } else {
+          const gray = ((r * 77 + g * 150 + b * 29) >> 8) * 0.16 | 0;
+          o[i] = gray; o[i + 1] = gray; o[i + 2] = gray;
+        }
+        o[i + 3] = 255;
+      }
+    }
+    vctx.putImageData(out, 0, 0);
+  }
+
+  function loop() {
+    if (state.source === 'camera' && !state.frozen && video.readyState >= 2 && video.videoWidth) {
+      setSize(video.videoWidth, video.videoHeight);
+      wctx.drawImage(video, 0, 0, work.width, work.height);
+      raw = wctx.getImageData(0, 0, work.width, work.height);
+      render();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- Cámara ----------
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('La cámara no está disponible (se necesita HTTPS). Usá "Sacar foto".', 3500);
+      return;
+    }
+    $('camBtn').disabled = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      state.stream = stream;
+      video.srcObject = stream;
+      await video.play();
+      state.source = 'camera';
+      setFrozen(false);
+      $('camBtn').textContent = 'Detener cámara';
+      $('camBtn').classList.remove('primary');
+      $('freezeBtn').disabled = false;
+    } catch (err) {
+      console.error(err);
+      const msg = err && err.name === 'NotAllowedError'
+        ? 'Permiso de cámara denegado. Podés usar "Sacar foto".'
+        : 'No se pudo abrir la cámara. Probá con "Sacar foto".';
+      toast(msg, 3500);
+    } finally {
+      $('camBtn').disabled = false;
+      setSourceLabel();
+    }
+  }
+
+  function stopCamera() {
+    if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+    state.stream = null;
+    video.srcObject = null;
+    $('camBtn').textContent = 'Activar cámara';
+    $('camBtn').classList.add('primary');
+    $('freezeBtn').disabled = true;
+    setFrozen(false);
+  }
+
+  function setFrozen(f) {
+    state.frozen = f;
+    const b = $('freezeBtn');
+    b.textContent = f ? 'Seguir' : 'Congelar';
+    b.classList.toggle('on', f);
+    $('frozenBadge').style.display = f ? 'block' : 'none';
+    setSourceLabel();
+  }
+
+  $('camBtn').addEventListener('click', () => {
+    if (state.stream) {
+      stopCamera();
+      state.source = 'photo'; // el último frame queda como imagen estática
+      setSourceLabel();
+    } else {
+      startCamera();
+    }
+  });
+
+  $('freezeBtn').addEventListener('click', () => {
+    if (state.source !== 'camera') return;
+    setFrozen(!state.frozen);
+  });
+
+  // ---------- Foto (fallback) ----------
+  $('photoBtn').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      if (state.stream) stopCamera();
+      state.source = 'photo';
+      loadStatic(img, img.naturalWidth, img.naturalHeight);
+      URL.revokeObjectURL(url);
+      setSourceLabel();
+      toast('Foto cargada');
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); toast('No se pudo leer la imagen'); };
+    img.src = url;
+  });
+
+  // ---------- Modos y sliders ----------
+  document.querySelectorAll('.mode').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.mode = +btn.dataset.mode;
+      document.querySelectorAll('.mode').forEach(b => b.classList.toggle('active', b === btn));
+      setSourceLabel();
+      render();
+    });
+  });
+
+  $('tol').addEventListener('input', e => {
+    state.tol = +e.target.value;
+    $('tolVal').textContent = state.tol + '°';
+    render();
+  });
+  $('sat').addEventListener('input', e => {
+    state.sat = +e.target.value;
+    $('satVal').textContent = state.sat + '%';
+    render();
+  });
+
+  $('resetHue').addEventListener('click', () => {
+    state.hue = { ...DEFAULT_HUE };
+    updateHueLabels();
+    render();
+    toast('Tonos restablecidos: cian 185°, azul 228°');
+  });
+
+  // ---------- Calibración por toque ----------
+  view.addEventListener('pointerdown', e => {
+    if (!raw) return;
+    const rect = view.getBoundingClientRect();
+    const W = raw.width, H = raw.height;
+    const k = Math.min(rect.width / W, rect.height / H);
+    const ox = (rect.width - W * k) / 2, oy = (rect.height - H * k) / 2;
+    const x = Math.floor((e.clientX - rect.left - ox) / k);
+    const y = Math.floor((e.clientY - rect.top - oy) / k);
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+
+    const mark = $('tapMark');
+    mark.style.left = (e.clientX - rect.left) + 'px';
+    mark.style.top = (e.clientY - rect.top) + 'px';
+    mark.style.opacity = 1;
+    setTimeout(() => (mark.style.opacity = 0), 500);
+
+    // Promedio 5×5
+    let r = 0, g = 0, b = 0, c = 0;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const px = x + dx, py = y + dy;
+        if (px < 0 || py < 0 || px >= W || py >= H) continue;
+        const i = (py * W + px) * 4;
+        r += raw.data[i]; g += raw.data[i + 1]; b += raw.data[i + 2]; c++;
+      }
+    }
+    r /= c; g /= c; b /= c;
+    const hsv = rgbToHsv(r, g, b);
+    const hue = Math.round(hsv.h);
+
+    if (hsv.v < V_MIN || hsv.s < 0.08) {
+      toast(`Color sin tono claro (${hue}°, sat ${Math.round(hsv.s * 100)}%). Tocá un punto más colorido.`, 2600);
+      return;
+    }
+
+    let target;
+    if (state.mode === 2) target = 'cyan';
+    else if (state.mode === 3) target = 'blue';
+    else target = hueDist(hue, state.hue.cyan) <= hueDist(hue, state.hue.blue) ? 'cyan' : 'blue';
+
+    state.hue[target] = hue;
+    updateHueLabels();
+    render();
+    toast(`${target === 'cyan' ? 'Cian' : 'Azul'} calibrado: ${hue}° · sat ${Math.round(hsv.s * 100)}%`);
+  });
+
+  // ---------- Imagen demo ----------
+  function makeDemo() {
+    const W = 720, H = 540;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+
+    // Fondo
+    ctx.fillStyle = '#f3e3dc';
+    ctx.fillRect(0, 0, W, H);
+
+    // Flecha cian (apunta a la derecha) y flecha azul (apunta hacia arriba)
+    const arrowRight = new Path2D();
+    arrowRight.moveTo(60, 230); arrowRight.lineTo(220, 230); arrowRight.lineTo(220, 170);
+    arrowRight.lineTo(330, 280); arrowRight.lineTo(220, 390); arrowRight.lineTo(220, 330);
+    arrowRight.lineTo(60, 330); arrowRight.closePath();
+
+    const arrowUp = new Path2D();
+    arrowUp.moveTo(505, 470); arrowUp.lineTo(505, 250); arrowUp.lineTo(440, 250);
+    arrowUp.lineTo(555, 90); arrowUp.lineTo(670, 250); arrowUp.lineTo(605, 250);
+    arrowUp.lineTo(605, 470); arrowUp.closePath();
+
+    // Paleta de camuflaje (rojos, naranjas, rosas)
+    const warm = [
+      [355, 75, 55], [5, 80, 52], [15, 85, 55], [25, 90, 58], [32, 90, 60],
+      [340, 70, 65], [330, 65, 70], [350, 60, 72], [10, 70, 45], [20, 60, 68],
+    ];
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const pick = arr => arr[(Math.random() * arr.length) | 0];
+
+    const step = 13;
+    for (let gy = 0; gy < H + step; gy += step) {
+      for (let gx = 0; gx < W + step; gx += step) {
+        const x = gx + rnd(-4, 4) + (((gy / step) | 0) % 2 ? step / 2 : 0);
+        const y = gy + rnd(-4, 4);
+        const rad = rnd(3, 7.5);
+        let col;
+        if (ctx.isPointInPath(arrowRight, x, y) && Math.random() < 0.6) {
+          // Cian apagado: mismo brillo aproximado que los cálidos
+          col = [185 + rnd(-6, 6), rnd(38, 55), rnd(55, 66)];
+        } else if (ctx.isPointInPath(arrowUp, x, y) && Math.random() < 0.6) {
+          col = [228 + rnd(-6, 6), rnd(38, 55), rnd(58, 68)];
+        } else {
+          const w = pick(warm);
+          col = [w[0] + rnd(-5, 5), w[1] + rnd(-10, 10), w[2] + rnd(-6, 6)];
+        }
+        ctx.fillStyle = `hsl(${col[0]},${col[1]}%,${col[2]}%)`;
+        ctx.beginPath();
+        ctx.arc(x, y, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    return c;
+  }
+
+  // ---------- Inicio ----------
+  updateHueLabels();
+  const demo = makeDemo();
+  loadStatic(demo, demo.width, demo.height);
+  setSourceLabel();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
