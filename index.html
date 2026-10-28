@@ -440,12 +440,12 @@
     // 2. Pendiente local de S contra N (ventana de 1,5 mm)
     localSlope(b, 1.5 * mm);
 
-    // 3. La flecha es la minoría (~15% de la carta): se deja oscura sobre fondo
-    //    claro. Lo ignorado (marca, borde) se rellena con la mediana y se
-    //    suaviza un poco más.
-    const [p05, p50, p90] = [0.05, 0.5, 0.9].map(q => percentiles(D, ignore, q, q)[0]);
-    const flip = p50 - p05 < p90 - p50 ? -1 : 1;
-    for (let p = 0; p < n; p++) F[p] = ignore[p] ? p50 * flip : D[p] * flip;
+    // 3. Adentro de la flecha la pendiente es mayor (así la arma el generador:
+    //    lo naranja, que es G − B alto, sube). Se invierte para que la flecha
+    //    quede oscura sobre fondo claro. Lo ignorado (marca, borde) se rellena
+    //    con la mediana y se suaviza un poco más.
+    const p50 = percentiles(D, ignore, 0.5, 0.5)[0];
+    for (let p = 0; p < n; p++) F[p] = ignore[p] ? -p50 : -D[p];
     blur(F, tmp, P, 0.75 * mm);
 
     // Señal/ruido: distancia flecha–fondo sobre la dispersión del fondo
@@ -459,7 +459,85 @@
       else paint(F, b, 0.02, 0.98, state.thresh);
       draw(st, P);
     }
-    return { snr };
+    return { snr, ...detectArrow(b, red) };
+  }
+
+  // ---------- Detección automática ----------
+  // Las dos flechas posibles de un filtro comparten el centro del tronco y
+  // difieren en dónde está la cabeza. Se compara el promedio del resultado en
+  // la zona que solo tiene la una contra la que solo tiene la otra; z mide esa
+  // diferencia en unidades del ruido del fondo, contando que el resultado está
+  // suavizado (los píxeles vecinos no son independientes).
+  // Calibrado con la hoja de prueba simulada: sin flecha z ≤ 0,8; con flecha a
+  // 8 niveles z ≥ 1,1 y siempre en la dirección correcta. Revisar con impresas.
+  const Z_SURE = 2, Z_MAYBE = 1.2;
+  let masks = null;
+  function arrowMasks(P) {
+    if (masks && masks.P === P) return masks;
+    const bin = m => Uint8Array.from(m, v => v > 0.5 ? 1 : 0);
+    const raw = [0, Math.PI, Math.PI / 2, -Math.PI / 2].map(a => arrowMask(P, a));
+    // Fondo para medir ruido: a más de ~3 mm de cualquier flecha, donde no
+    // llega el borde difuminado de la propia flecha
+    const near = new Float32Array(P * P), tmp = new Float32Array(P * P);
+    for (const m of raw) for (let p = 0; p < near.length; p++) near[p] = Math.max(near[p], m[p]);
+    blur(near, tmp, P, 2 * P / CARD_MM);
+    masks = { P, up: bin(raw[0]), down: bin(raw[1]), right: bin(raw[2]), left: bin(raw[3]),
+              far: Uint8Array.from(near, v => v < 0.02 ? 1 : 0) };
+    return masks;
+  }
+
+  function detectArrow(b, red) {
+    const { P, n, F, ignore } = b, mk = arrowMasks(P);
+    const a = red ? mk.up : mk.right, c = red ? mk.down : mk.left;
+    let sa = 0, na = 0, sc = 0, nc = 0, sb = 0, sbb = 0, nb = 0;
+    for (let p = 0; p < n; p++) {
+      if (ignore[p]) continue;
+      const v = F[p];
+      if (a[p] && !c[p]) { sa += v; na++; }
+      else if (c[p] && !a[p]) { sc += v; nc++; }
+      else if (mk.far[p]) { sb += v; sbb += v * v; nb++; }
+    }
+    if (!na || !nc || nb < 2) return { dir: null, z: 0 };
+    const mb = sb / nb, sdb = Math.sqrt(Math.max(1e-12, sbb / nb - mb * mb));
+    const mmPx = P / CARD_MM, corrArea = 4 * Math.PI * (1.7 * mmPx) ** 2;
+    // La flecha es oscura: la zona exclusiva más oscura es la que está
+    const d = sc / nc - sa / na;
+    const z = d / (sdb * Math.sqrt(corrArea * (1 / na + 1 / nc)));
+    const dir = red ? (z > 0 ? 'up' : 'down') : (z > 0 ? 'right' : 'left');
+    return { dir, z: Math.abs(z) };
+  }
+
+  // Flecha nítida sobre el recuadro: llena si la lectura es segura, punteada si es dudosa
+  function drawVerdict(g, res) {
+    if (!res.dir || res.z < Z_MAYBE) return;
+    const ang = { up: 0, right: Math.PI / 2, down: Math.PI, left: -Math.PI / 2 }[res.dir];
+    const u = g.s / CARD_MM, L = 28 * u, t = 6 * u, hw = 16 * u, hl = 11 * u;
+    vctx.save();
+    vctx.translate(g.x + g.s / 2, g.y + g.s / 2);
+    vctx.rotate(ang);
+    vctx.beginPath();
+    vctx.moveTo(0, -L / 2); vctx.lineTo(hw / 2, -L / 2 + hl); vctx.lineTo(t / 2, -L / 2 + hl);
+    vctx.lineTo(t / 2, L / 2); vctx.lineTo(-t / 2, L / 2); vctx.lineTo(-t / 2, -L / 2 + hl);
+    vctx.lineTo(-hw / 2, -L / 2 + hl); vctx.closePath();
+    vctx.lineJoin = 'round';
+    vctx.lineWidth = Math.max(2, 0.6 * u);
+    vctx.strokeStyle = '#141d3a';
+    if (res.z >= Z_SURE) {
+      vctx.fillStyle = 'rgba(243, 238, 226, .92)';
+      vctx.fill();
+      vctx.stroke();
+    } else {
+      vctx.setLineDash([8, 6]);
+      vctx.strokeStyle = '#f3eee2';
+      vctx.stroke();
+    }
+    vctx.restore();
+  }
+
+  function verdictText(res) {
+    if (!res.dir || res.z < Z_MAYBE) return 'No se lee. Encuadrá la carta y buscá más luz.';
+    const arrow = { up: '↑', down: '↓', right: '→', left: '←' }[res.dir];
+    return res.z >= Z_SURE ? `${arrow} · lectura segura` : `${arrow}? · dudosa, probá de nuevo`;
   }
 
   function drawGuide(g) {
@@ -479,7 +557,7 @@
   }
 
   function snrText(r) {
-    return `señal/ruido ${r.snr.toFixed(1)}`;
+    return `señal/ruido ${r.snr.toFixed(1)} · z ${r.z.toFixed(1)} · ${verdictText(r)}`;
   }
 
   function loadStatic(img, w, h) {
@@ -523,10 +601,14 @@
     if (state.filter) {
       vctx.fillStyle = 'rgba(15, 22, 48, .72)';
       vctx.fillRect(0, 0, W, H);
-      processCard(g, ['final'], (st, P) => {
+      const res = processCard(g, ['final'], (st, P) => {
         vctx.imageSmoothingEnabled = true;
         vctx.drawImage(proc, 0, 0, P, P, g.x, g.y, g.s, g.s);
       });
+      drawGuide(g);
+      drawVerdict(g, res);
+      $('caption').textContent = verdictText(res);
+      return;
     }
     drawGuide(g);
   }
@@ -734,28 +816,31 @@
     blur(mv, tmp, P, u);
     blur(mh, tmp, P, u);
 
-    // Señuelos: flechas falsas que solo cambian el contraste del laberinto
-    // (la app no las ve). Las primeras 3, grandes y centradas como las reales.
-    const decoy = new Float32Array(n), force = DEMO_AMP * 0.79 / 77;
-    const nDecoys = 6 + Math.floor(Math.random() * 5);
-    for (let d = 0; d < nDecoys; d++) {
-      const big = d < 3;
-      const ang = big && Math.random() < 0.75 ? (Math.random() * 4 | 0) * Math.PI / 2 : Math.random() * 2 * Math.PI;
-      const sc = big ? 0.85 + 0.15 * Math.random() : 0.45 + 0.45 * Math.random();
-      const lo = 8 * u, span = P - 16 * u;
-      const cx = big ? P / 2 : lo + Math.random() * span, cy = big ? P / 2 : lo + Math.random() * span;
-      const m = arrowMask(P, ang, sc, cx, cy), w = (Math.random() < 0.5 ? -1 : 1) * (0.7 + 0.6 * Math.random()) * force;
-      for (let p = 0; p < n; p++) decoy[p] += w * m[p];
+    // Señuelos: flechas falsas que corren G y B igual en lo naranja y lo
+    // violeta (se ven, la app no las lee). Una grande al centro y el resto
+    // repartidas, como en tools/generar_dorsos.py.
+    const decoy = new Float32Array(n), centers = [[P / 2, P / 2]];
+    const nDecoys = 6 + Math.floor(Math.random() * 5), lo = 8 * u, span = P - 16 * u;
+    for (let tries = 0; centers.length < nDecoys && tries < 400; tries++) {
+      const c = [lo + Math.random() * span, lo + Math.random() * span];
+      const far = centers.every(o => Math.hypot(c[0] - o[0], c[1] - o[1]) > 10 * u);
+      if (far && !(c[0] < 14 * u && c[1] < 14 * u)) centers.push(c);
     }
-    blur(decoy, tmp, P, u);
+    centers.forEach(([cx, cy], d) => {
+      const ang = d === 0 ? (Math.random() * 4 | 0) * Math.PI / 2 : Math.random() * 2 * Math.PI;
+      const sc = d === 0 ? 0.8 + 0.15 * Math.random() : 0.38 + 0.22 * Math.random();
+      const m = arrowMask(P, ang, sc, cx, cy), w = (Math.random() < 0.5 ? -1 : 1) * (0.7 + 0.6 * Math.random()) * DEMO_AMP;
+      for (let p = 0; p < n; p++) decoy[p] += w * m[p];
+    });
+    blur(decoy, tmp, P, 0.5 * u);
 
     const img = ctx.createImageData(P, P), o = img.data;
     for (let p = 0, i = 0; p < n; p++, i += 4) {
       const t = 0.5 + 0.5 * Math.tanh(k * fine[p]), car = 2 * t - 1;
-      const sv = 2 * mv[p] - 1, sh = 2 * mh[p] - 1, tk = 0.5 + (t - 0.5) * (1 + decoy[p]);
-      let r = VIOLET[0] + (ORANGE[0] - VIOLET[0]) * tk + DEMO_AMP / 2 * car * sv;
-      let gg = VIOLET[1] + (ORANGE[1] - VIOLET[1]) * tk + DEMO_AMP / 2 * car * sh;
-      let bb = VIOLET[2] + (ORANGE[2] - VIOLET[2]) * tk + DEMO_AMP / 2 * car * sh;
+      const sv = 2 * mv[p] - 1, sh = 2 * mh[p] - 1;
+      let r = VIOLET[0] + (ORANGE[0] - VIOLET[0]) * t + DEMO_AMP / 2 * car * sv;
+      let gg = VIOLET[1] + (ORANGE[1] - VIOLET[1]) * t + DEMO_AMP / 2 * car * sh + decoy[p];
+      let bb = VIOLET[2] + (ORANGE[2] - VIOLET[2]) * t + DEMO_AMP / 2 * car * sh + decoy[p];
       // Impresión simulada
       r = 255 * Math.pow(r / 255, 1.1) + 0.1 * (gg - bb);
       gg = 255 * Math.pow(gg / 255, 1.15) - 0.05 * r;

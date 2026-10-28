@@ -67,17 +67,22 @@ FLECHA_CABEZA_LARGO = 11.0
 FLECHA_BORDE_MM = 1.0      # desenfoque del borde: sin contorno que el ojo enganche
 
 # Camuflaje: el contraste del laberinto varía al azar (±CAMUFLAJE) a escala de
-# varios mm. La flecha cambia un poco el contraste de la textura; así ese cambio
-# queda perdido entre otros parecidos. No afecta la lectura: escala por igual
-# las diferencias de todos los canales, y la app mide su cociente.
+# varios mm, para que la textura no sea pareja. No afecta la lectura: escala
+# por igual las diferencias de todos los canales, y la app mide su cociente.
 CAMUFLAJE = 0.10
 CAMUFLAJE_ESCALA_MM = 3.0
 
-# Señuelos: flechas falsas hechas con ese mismo cambio de contraste, en ángulos y
-# tamaños al azar, con contraste de más o de menos. A simple vista se ven varias
-# flechas parecidas y no hay forma de saber cuál cuenta; la app no las lee.
-# Su fuerza se iguala a lo que se nota la flecha real (ver generar_dorso).
+# Señuelos: flechas falsas repartidas por la carta, en ángulos y tamaños al
+# azar (y una grande en el centro, encima de las reales). Cada una corre G y B
+# un poco hacia arriba o hacia abajo, igual en lo naranja y en lo violeta: se
+# ve como un cambio de tono con forma de flecha, pero como no sigue al
+# laberinto, la app (que mide la pendiente contra G − B en ventanas locales)
+# no la lee. Van solo en G + B porque R tiene mucha pendiente propia contra
+# el laberinto y una curva de tono no lineal de la impresora las filtraría.
 SENUELOS_MIN, SENUELOS_MAX = 6, 10
+SENUELOS_FUERZA = 1.0      # corrimiento del señuelo, en múltiplos de la amplitud
+SENUELOS_BORDE_MM = 0.5
+SENUELOS_SEPARACION_MM = 10.0
 
 # Marca de orientación: el ojo del logo, en la esquina superior izquierda
 MARCA_CENTRO_MM = 5.6    # desde el borde de corte
@@ -145,23 +150,29 @@ def mascara_flecha_libre(angulo, escala, cx, cy, n=CELDA_PX, ss=4):
     return np.asarray(big.resize((n, n), Image.LANCZOS), dtype=np.float64) / 255
 
 
-def senuelos(rng, fuerza, n=CELDA_PX):
-    """Suma de flechas falsas con signo: ±fuerza adentro de cada una."""
-    total = np.zeros((n, n))
-    centro_min, centro_max = mm(SANGRADO_MM + 8), mm(SANGRADO_MM + CARTA_MM - 8)
-    for i in range(rng.integers(SENUELOS_MIN, SENUELOS_MAX + 1)):
-        if i < 3:
-            # Grandes y en el centro, como las reales, casi siempre en una
-            # dirección cardinal: son los que más confunden
-            ang = rng.choice((0, 90, 180, 270)) if rng.random() < 0.75 else rng.uniform(0, 360)
-            esc = rng.uniform(0.85, 1.0)
-            cx, cy = n / 2 + rng.normal(0, mm(1.5), 2)
+def senuelos(rng, amp, fuerza=None, n=CELDA_PX):
+    """Corrimiento de G y B (cada uno) que dibuja las flechas falsas."""
+    fuerza = SENUELOS_FUERZA if fuerza is None else fuerza
+    d = np.zeros((n, n))
+    lo, hi = mm(SANGRADO_MM + 6), mm(SANGRADO_MM + CARTA_MM - 6)
+    esquina = mm(SANGRADO_MM + 12)       # lejos del ojo
+    centros = [(n / 2, n / 2)]
+    for _ in range(int(rng.integers(SENUELOS_MIN, SENUELOS_MAX + 1)) - 1):
+        for _intento in range(200):
+            c = rng.uniform(lo, hi, 2)
+            lejos = all(np.hypot(*(c - o)) > mm(SENUELOS_SEPARACION_MM) for o in centros)
+            if lejos and not (c[0] < esquina and c[1] < esquina):
+                centros.append(tuple(c))
+                break
+    for i, (cx, cy) in enumerate(centros):
+        if i == 0:
+            # La del centro, grande y en una dirección cardinal, como las reales
+            ang, esc = rng.choice((0, 90, 180, 270)), rng.uniform(0.8, 0.95)
         else:
-            ang, esc = rng.uniform(0, 360), rng.uniform(0.45, 0.9)
-            cx, cy = rng.uniform(centro_min, centro_max, 2)
+            ang, esc = rng.uniform(0, 360), rng.uniform(0.38, 0.6)
         m = mascara_flecha_libre(ang, esc, cx, cy, n)
-        total += rng.choice((-1, 1)) * rng.uniform(0.7, 1.3) * fuerza * m
-    return gauss(total, mm(FLECHA_BORDE_MM))
+        d += rng.choice((-1, 1)) * rng.uniform(0.7, 1.3) * fuerza * amp * m
+    return gauss(d, mm(SENUELOS_BORDE_MM))
 
 
 def laberinto(rng, n=CELDA_PX):
@@ -216,16 +227,13 @@ def generar_dorso(semilla, vertical, horizontal, amp_r, amp_gb, marca=True):
     t = laberinto(rng)
     c1, c2 = np.array(VIOLETA, float), np.array(NARANJA, float)
 
-    # Contraste del laberinto: camuflaje + señuelos. La flecha real cambia el
-    # contraste de luminancia de la textura en ~amp / ΔY (ΔY = diferencia de
-    # luminancia violeta–naranja); los señuelos cambian el contraste en eso mismo.
-    lum = np.array([0.2126, 0.7152, 0.0722])
-    dy = abs(lum @ (c2 - c1))
-    fuerza = max(amp_r * lum[0], amp_gb * (lum[1] + lum[2])) / dy
     camo = gauss(rng.standard_normal(t.shape), mm(CAMUFLAJE_ESCALA_MM))
-    k = 1 + CAMUFLAJE * np.clip(camo / camo.std(), -1.5, 1.5) + senuelos(rng, fuerza)
-    k = np.clip(k, 0.6, 1.4)
+    k = 1 + CAMUFLAJE * np.clip(camo / camo.std(), -1.5, 1.5)
     rgb = (c1 + c2) / 2 + (c2 - c1) * ((t - 0.5) * k)[..., None]
+
+    d_gb = senuelos(rng, max(amp_r, amp_gb))
+    rgb[..., 1] += d_gb
+    rgb[..., 2] += d_gb
     portadora = 2 * t - 1
 
     # ±1 adentro/afuera de cada flecha, con bordes suaves
