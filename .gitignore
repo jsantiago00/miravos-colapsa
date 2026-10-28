@@ -1,1 +1,3 @@
 *.pdf
+tools/salida/
+__pycache__/

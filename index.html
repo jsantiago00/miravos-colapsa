@@ -142,7 +142,14 @@
   .btn.primary { background: var(--cream); color: var(--navy); border-color: var(--cream); }
   .btn.on { background: var(--orange); color: var(--navy); border-color: var(--orange); }
   .btn:disabled { opacity: .35; }
-  .btn:active, .filter:active { transform: scale(.97); }
+  .btn:active, .filter:active, .chip:active { transform: scale(.97); }
+
+  #tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .chip {
+    min-height: 34px; border-radius: 999px; border: 1px solid var(--line);
+    background: transparent; color: var(--muted); font: 500 12px var(--sans); letter-spacing: .04em;
+  }
+  .chip.on { border-color: var(--sky); color: var(--cream); background: #7fb0e322; }
   #fileInput { display: none; }
 
   @media (min-width: 700px) {
@@ -195,6 +202,10 @@
     <button class="btn" id="freezeBtn" disabled>Colapsar</button>
     <button class="btn" id="photoBtn">Sacar foto</button>
   </div>
+  <div id="tools">
+    <button class="chip" data-opt="thresh">Umbral</button>
+    <button class="chip" data-opt="debug">Debug</button>
+  </div>
   <input type="file" id="fileInput" accept="image/*" capture="environment">
 </div>
 
@@ -205,6 +216,12 @@
   'use strict';
 
   const MAX_SIDE = 720;
+  const GUIDE = 0.72;       // lado del recuadro guía, fracción del lado menor del cuadro
+  const PROC_MAX = 320;     // resolución a la que se procesa la carta
+  const CARD_MM = 40;       // el recuadro guía es la carta cortada
+  const CORNER = 0.275;     // esquinas que se ignoran (ahí va la marca del ojo)
+  const EDGE = 0.05;        // franja del borde que se ignora
+  const MARK_MM = 5.6;      // centro de la marca, desde el borde de la carta
 
   const QUIPS_COLLAPSE = [
     'Medido. Ahora la flecha no se mueve.',
@@ -222,6 +239,8 @@
   const vctx = view.getContext('2d');
   const work = document.createElement('canvas');
   const wctx = work.getContext('2d', { willReadFrequently: true });
+  const proc = document.createElement('canvas');
+  const pctx = proc.getContext('2d', { willReadFrequently: true });
   const video = $('video');
 
   const state = {
@@ -229,11 +248,11 @@
     source: 'demo',     // 'demo' | 'camera' | 'photo'
     frozen: false,
     stream: null,
+    thresh: false,      // umbral binario en vez de grises
+    debug: false,       // crudo · descorrelado · final, lado a lado
   };
 
   let raw = null;       // ImageData del frame original
-  let out = null;       // ImageData procesada
-  let lum = null;       // valores intermedios del filtro
 
   const pick = arr => arr[(Math.random() * arr.length) | 0];
 
@@ -270,8 +289,8 @@
     if (state.source === 'demo' && !state.filter) {
       c.innerHTML = 'Hay dos flechas escondidas. <em>Tocá Rojo o Cian</em> para verlas.';
     } else if (state.source === 'camera' && !state.filter) {
-      c.innerHTML = 'Apuntá a una carta y <em>elegí un filtro</em>.';
-    } else {
+      c.innerHTML = 'Encuadrá la carta en el recuadro, <em>con el ojo arriba a la izquierda</em>.';
+    } else if (!state.debug) {
       c.textContent = '';
     }
   }
@@ -279,12 +298,188 @@
   function setSize(w, h) {
     const k = Math.min(1, MAX_SIDE / Math.max(w, h));
     const W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
-    if (!out || work.width !== W || work.height !== H) {
+    if (work.width !== W || work.height !== H) {
       work.width = W; work.height = H;
-      view.width = W; view.height = H;
-      out = vctx.createImageData(W, H);
-      lum = new Uint8Array(W * H);
     }
+  }
+
+  function guideRect(W, H) {
+    const s = Math.round(Math.min(W, H) * GUIDE);
+    return { x: (W - s) >> 1, y: (H - s) >> 1, s };
+  }
+
+  // ---------- Procesamiento de la carta ----------
+  // Buffers de trabajo, uno por tamaño de procesamiento.
+  // ignore marca lo que no entra en ajustes ni percentiles: las esquinas (marca
+  // del ojo) y una franja en el borde (mesa o cartas vecinas por mal encuadre).
+  let buf = null;
+  function buffers(P) {
+    if (buf && buf.P === P) return buf;
+    const n = P * P, f = () => new Float32Array(n);
+    const ignore = new Uint8Array(n), k = Math.round(P * CORNER), e = Math.round(P * EDGE);
+    for (let y = 0; y < P; y++) {
+      for (let x = 0; x < P; x++) {
+        const inCorner = (x < k || x >= P - k) && (y < k || y >= P - k);
+        const onEdge = x < e || x >= P - e || y < e || y >= P - e;
+        ignore[y * P + x] = inCorner || onEdge ? 1 : 0;
+      }
+    }
+    buf = { P, n, S: f(), N: f(), D: f(), F: f(), M1: f(), M2: f(), tmp: f(), ignore,
+            img: pctx.createImageData(P, P) };
+    return buf;
+  }
+
+  // Promedio móvil en una dirección, replicando el borde
+  function boxPass(src, dst, P, r, horiz) {
+    const step = horiz ? 1 : P, lstep = horiz ? P : 1, inv = 1 / (2 * r + 1), last = P - 1;
+    for (let l = 0; l < P; l++) {
+      const base = l * lstep;
+      let acc = src[base] * (r + 1);
+      for (let i = 1; i <= r; i++) acc += src[base + Math.min(i, last) * step];
+      for (let i = 0; i < P; i++) {
+        dst[base + i * step] = acc * inv;
+        acc += src[base + Math.min(i + r + 1, last) * step] - src[base + Math.max(i - r, 0) * step];
+      }
+    }
+  }
+
+  // Tres pasadas de caja ≈ gaussiana de desvío sigma. El resultado queda en a.
+  function blur(a, tmp, P, sigma) {
+    const r = Math.max(1, Math.round((Math.sqrt(4 * sigma * sigma + 1) - 1) / 2));
+    for (let k = 0; k < 3; k++) {
+      boxPass(a, tmp, P, r, true);
+      boxPass(tmp, a, P, r, false);
+    }
+  }
+
+  function meanOutside(a, ignore) {
+    let s = 0, c = 0;
+    for (let p = 0; p < a.length; p++) if (!ignore[p]) { s += a[p]; c++; }
+    return s / c;
+  }
+
+  function percentiles(a, ignore, plo, phi) {
+    const s = [];
+    for (let p = 0; p < a.length; p += 3) if (!ignore[p]) s.push(a[p]);
+    s.sort((x, y) => x - y);
+    return [s[Math.floor(s.length * plo)], s[Math.min(s.length - 1, Math.floor(s.length * phi))]];
+  }
+
+  // Pendiente local de S contra N, en ventanas gaussianas de desvío sigma:
+  //   a(x) = cov(S, N) / var(N)
+  // La flecha cambia esa pendiente adentro y afuera. La luz multiplica S y N
+  // por igual, así que la pendiente no cambia con la iluminación, y el cruce de
+  // tinta que meta la impresión es el mismo en toda la carta: solo corre el fondo.
+  // Resultado en D.
+  function localSlope(b, sigma) {
+    const { P, n, S, N, D, F, M1, M2, tmp } = b;
+    F.set(S); blur(F, tmp, P, sigma);                       // E[S]
+    D.set(N); blur(D, tmp, P, sigma);                       // E[N]
+    for (let p = 0; p < n; p++) { M1[p] = S[p] * N[p]; M2[p] = N[p] * N[p]; }
+    blur(M1, tmp, P, sigma);                                // E[SN]
+    blur(M2, tmp, P, sigma);                                // E[N²]
+    for (let p = 0; p < n; p++) {
+      const mn = D[p];
+      D[p] = (M1[p] - F[p] * mn) / (M2[p] - mn * mn + 1);
+    }
+  }
+
+  // Estira entre percentiles y pinta con el color del filtro
+  function paint(a, b, plo, phi, binary) {
+    const { n, ignore, img } = b, o = img.data, red = state.filter === 'red';
+    let [lo, hi] = percentiles(a, ignore, plo, phi);
+    if (hi - lo < 1e-6) hi = lo + 1;
+    const k = 255 / (hi - lo);
+    let thr = -1;
+    if (binary) {
+      // Umbral de Otsu sobre los valores ya estirados
+      const hist = new Float64Array(256);
+      for (let p = 0; p < n; p++) {
+        if (ignore[p]) continue;
+        const v = (a[p] - lo) * k;
+        hist[v < 0 ? 0 : v > 255 ? 255 : v | 0]++;
+      }
+      let tot = 0, sum = 0;
+      for (let i = 0; i < 256; i++) { tot += hist[i]; sum += i * hist[i]; }
+      let w0 = 0, s0 = 0, best = -1;
+      for (let i = 0; i < 256; i++) {
+        w0 += hist[i]; s0 += i * hist[i];
+        if (!w0 || w0 === tot) continue;
+        const m0 = s0 / w0, m1 = (sum - s0) / (tot - w0), bv = w0 * (tot - w0) * (m0 - m1) ** 2;
+        if (bv > best) { best = bv; thr = i; }
+      }
+    }
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+      let v = (a[p] - lo) * k;
+      v = v < 0 ? 0 : v > 255 ? 255 : v;
+      if (thr >= 0) v = v > thr ? 255 : 0;
+      const t = v * 0.3;
+      if (red) { o[i] = v; o[i + 1] = t; o[i + 2] = t; }
+      else { o[i] = t; o[i + 1] = v; o[i + 2] = v; }
+      o[i + 3] = 255;
+    }
+    pctx.putImageData(img, 0, 0);
+  }
+
+  // Pipeline sobre el recuadro guía. Por cada etapa pedida ('raw' = canal crudo,
+  // 'carrier' = portadora G − B, 'final') pinta el resultado en `proc` y llama a draw.
+  function processCard(g, stages, draw) {
+    const P = Math.min(g.s, PROC_MAX), mm = P / CARD_MM;
+    if (proc.width !== P) { proc.width = P; proc.height = P; }
+    pctx.drawImage(work, g.x, g.y, g.s, g.s, 0, 0, P, P);
+    const px = pctx.getImageData(0, 0, P, P).data;
+    const b = buffers(P), { n, S, N, D, F, tmp, ignore } = b;
+
+    // 1. Canal oculto (S) y portadora (N = G − B, el laberinto visible)
+    const red = state.filter === 'red';
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+      S[p] = red ? px[i] : (px[i + 1] + px[i + 2]) / 2;
+      N[p] = px[i + 1] - px[i + 2];
+    }
+
+    // 2. Pendiente local de S contra N (ventana de 1,5 mm)
+    localSlope(b, 1.5 * mm);
+
+    // 3. La flecha es la minoría (~15% de la carta): se deja oscura sobre fondo
+    //    claro. Lo ignorado (marca, borde) se rellena con la mediana y se
+    //    suaviza un poco más.
+    const [p05, p50, p90] = [0.05, 0.5, 0.9].map(q => percentiles(D, ignore, q, q)[0]);
+    const flip = p50 - p05 < p90 - p50 ? -1 : 1;
+    for (let p = 0; p < n; p++) F[p] = ignore[p] ? p50 * flip : D[p] * flip;
+    blur(F, tmp, P, 0.75 * mm);
+
+    // Señal/ruido: distancia flecha–fondo sobre la dispersión del fondo
+    const [q05, q50, q75] = [0.05, 0.5, 0.75].map(q => percentiles(F, ignore, q, q)[0]);
+    const snr = (q50 - q05) / Math.max(1e-9, (q75 - q50) / 0.674);
+
+    // 4. Estiramiento por percentiles (o umbral) y salida
+    for (const st of stages) {
+      if (st === 'raw') paint(S, b, 0.01, 0.99, false);
+      else if (st === 'carrier') paint(N, b, 0.01, 0.99, false);
+      else paint(F, b, 0.02, 0.98, state.thresh);
+      draw(st, P);
+    }
+    return { snr };
+  }
+
+  function drawGuide(g) {
+    vctx.save();
+    vctx.strokeStyle = '#f3eee2';
+    vctx.lineWidth = 2;
+    vctx.setLineDash([10, 7]);
+    vctx.strokeRect(g.x + 0.5, g.y + 0.5, g.s - 1, g.s - 1);
+    // Dónde tiene que quedar el ojo
+    vctx.setLineDash([]);
+    vctx.globalAlpha = 0.8;
+    const m = g.s * MARK_MM / CARD_MM;
+    vctx.beginPath();
+    vctx.ellipse(g.x + m, g.y + m, g.s * 4.75 / CARD_MM, g.s * 2.8 / CARD_MM, 0, 0, Math.PI * 2);
+    vctx.stroke();
+    vctx.restore();
+  }
+
+  function snrText(r) {
+    return `señal/ruido ${r.snr.toFixed(1)}`;
   }
 
   function loadStatic(img, w, h) {
@@ -294,44 +489,46 @@
     render();
   }
 
-  // Simula mirar a través de celofán rojo o cian, con contraste automático.
-  // Rojo: deja pasar R → lo cian/azul se ve oscuro.
-  // Cian: deja pasar G+B → lo rojo/naranja se ve oscuro y lo cian/azul se ilumina.
+  // Filtro rojo: lee R, donde está la flecha vertical.
+  // Filtro cian: lee (G+B)/2, donde está la flecha horizontal.
+  // Las flechas están escondidas en cómo esos canales siguen al laberinto (G − B).
   function render() {
     if (!raw) return;
-    const s = raw.data, o = out.data, n = lum.length;
-    if (!state.filter) {
-      o.set(s);
-      vctx.putImageData(out, 0, 0);
+    const W = work.width, H = work.height, g = guideRect(W, H);
+
+    if (state.filter && state.debug) {
+      // Tres paneles: en fila si la pantalla es ancha, en columna si es alta
+      const stage = $('stage'), wide = stage.clientWidth >= stage.clientHeight;
+      const P = Math.min(g.s, PROC_MAX), gap = 8, lab = 22;
+      const VW = wide ? 3 * P + 2 * gap : P, VH = wide ? P + lab : 3 * (P + lab) + 2 * gap;
+      if (view.width !== VW || view.height !== VH) { view.width = VW; view.height = VH; }
+      vctx.fillStyle = '#0f1630';
+      vctx.fillRect(0, 0, VW, VH);
+      vctx.font = '500 13px "Space Grotesk", system-ui, sans-serif';
+      vctx.fillStyle = '#9aa6c7';
+      const names = { raw: 'crudo', carrier: 'portadora (G − B)', final: 'final' };
+      let k = 0;
+      const res = processCard(g, ['raw', 'carrier', 'final'], st => {
+        const x = wide ? k * (P + gap) : 0, y = wide ? 0 : k * (P + lab + gap);
+        vctx.drawImage(proc, x, y + lab);
+        vctx.fillText(names[st], x + 2, y + 15);
+        k++;
+      });
+      $('caption').textContent = snrText(res);
       return;
     }
 
-    const red = state.filter === 'red';
-    const hist = new Uint32Array(256);
-    for (let p = 0, i = 0; p < n; p++, i += 4) {
-      const v = red ? s[i] : (s[i + 1] + s[i + 2]) >> 1;
-      lum[p] = v;
-      hist[v]++;
+    if (view.width !== W || view.height !== H) { view.width = W; view.height = H; }
+    vctx.putImageData(raw, 0, 0);
+    if (state.filter) {
+      vctx.fillStyle = 'rgba(15, 22, 48, .72)';
+      vctx.fillRect(0, 0, W, H);
+      processCard(g, ['final'], (st, P) => {
+        vctx.imageSmoothingEnabled = true;
+        vctx.drawImage(proc, 0, 0, P, P, g.x, g.y, g.s, g.s);
+      });
     }
-
-    // Estira entre los percentiles 1% y 99%
-    let lo = 0, hi = 255, acc = 0;
-    const cut = n * 0.01;
-    for (; lo < 255; lo++) { acc += hist[lo]; if (acc > cut) break; }
-    acc = 0;
-    for (; hi > 0; hi--) { acc += hist[hi]; if (acc > cut) break; }
-    if (hi - lo < 20) { lo = 0; hi = 255; }
-    const k = 255 / (hi - lo);
-
-    for (let p = 0, i = 0; p < n; p++, i += 4) {
-      let v = (lum[p] - lo) * k;
-      v = v < 0 ? 0 : v > 255 ? 255 : v;
-      const t = v * 0.3;
-      if (red) { o[i] = v; o[i + 1] = t; o[i + 2] = t; }
-      else { o[i] = t; o[i + 1] = v; o[i + 2] = v; }
-      o[i + 3] = 255;
-    }
-    vctx.putImageData(out, 0, 0);
+    drawGuide(g);
   }
 
   function loop() {
@@ -355,6 +552,16 @@
         const [title, msg] = QUIPS_FILTER[state.filter];
         toast(title, msg, 1200);
       }
+      updateLabels();
+      render();
+    });
+  });
+
+  document.querySelectorAll('.chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const k = btn.dataset.opt;
+      state[k] = !state[k];
+      btn.classList.toggle('on', state[k]);
       updateLabels();
       render();
     });
@@ -450,52 +657,116 @@
   });
 
   // ---------- Imagen demo ----------
+  // Un dorso como los de tools/generar_dorsos.py, con una "impresión" simulada
+  // (curva de tono, cruce de tintas, luz despareja y ruido de cámara).
+  const DEMO_AMP = 12;
+  const VIOLET = [109, 79, 163], ORANGE = [233, 162, 59];
+
+  // Máscara 0..1 de una flecha; angle 0 = arriba, sentido horario.
+  // Por defecto centrada y de tamaño completo (la real).
+  function arrowMask(P, angle, scale = 1, cx = P / 2, cy = P / 2) {
+    const c = document.createElement('canvas');
+    c.width = c.height = P;
+    const ctx = c.getContext('2d'), u = scale * P / CARD_MM;
+    const L = 28 * u, t = 6 * u, hw = 16 * u, hl = 11 * u;
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.moveTo(0, -L / 2); ctx.lineTo(hw / 2, -L / 2 + hl); ctx.lineTo(t / 2, -L / 2 + hl);
+    ctx.lineTo(t / 2, L / 2); ctx.lineTo(-t / 2, L / 2); ctx.lineTo(-t / 2, -L / 2 + hl);
+    ctx.lineTo(-hw / 2, -L / 2 + hl); ctx.closePath();
+    ctx.fill();
+    const a = ctx.getImageData(0, 0, P, P).data, m = new Float32Array(P * P);
+    for (let p = 0; p < m.length; p++) m[p] = a[p * 4 + 3] / 255;
+    return m;
+  }
+
+  // Ojo del logo: almendra crema con borde navy, iris celeste y flechita
+  function drawMark(ctx, cx, cy, u) {
+    const almond = (w, h) => {
+      ctx.beginPath();
+      ctx.moveTo(cx - w / 2, cy);
+      ctx.quadraticCurveTo(cx, cy - h, cx + w / 2, cy);
+      ctx.quadraticCurveTo(cx, cy + h, cx - w / 2, cy);
+      ctx.closePath();
+    };
+    ctx.save();
+    ctx.fillStyle = ctx.strokeStyle = '#141d3a';
+    ctx.lineWidth = 0.9 * u; ctx.lineJoin = 'round';
+    almond(9.5 * u, 5.6 * u); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#f3eee2';
+    almond(9.5 * 0.82 * u, 5.6 * 0.72 * u); ctx.fill();
+    ctx.fillStyle = '#7fb0e3'; ctx.beginPath(); ctx.arc(cx, cy, 1.75 * u, 0, Math.PI * 2); ctx.fill();
+    const rp = 1.75 * 0.58 * u, a = rp * 0.8;
+    ctx.fillStyle = '#141d3a'; ctx.beginPath(); ctx.arc(cx, cy, rp, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f3eee2';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - a); ctx.lineTo(cx + a * 0.7, cy); ctx.lineTo(cx + a * 0.28, cy);
+    ctx.lineTo(cx + a * 0.28, cy + a); ctx.lineTo(cx - a * 0.28, cy + a);
+    ctx.lineTo(cx - a * 0.28, cy); ctx.lineTo(cx - a * 0.7, cy); ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   function makeDemo() {
     const W = 720, H = 540;
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
     const ctx = c.getContext('2d');
-
-    ctx.fillStyle = '#f3eee2';
+    ctx.fillStyle = '#3a3f52';
     ctx.fillRect(0, 0, W, H);
 
-    const arrowRight = new Path2D();
-    arrowRight.moveTo(60, 230); arrowRight.lineTo(220, 230); arrowRight.lineTo(220, 170);
-    arrowRight.lineTo(330, 280); arrowRight.lineTo(220, 390); arrowRight.lineTo(220, 330);
-    arrowRight.lineTo(60, 330); arrowRight.closePath();
+    const g = guideRect(W, H), P = g.s, n = P * P, u = P / CARD_MM;
+    const tmp = new Float32Array(n);
 
-    const arrowUp = new Path2D();
-    arrowUp.moveTo(505, 470); arrowUp.lineTo(505, 250); arrowUp.lineTo(440, 250);
-    arrowUp.lineTo(555, 90); arrowUp.lineTo(670, 250); arrowUp.lineTo(605, 250);
-    arrowUp.lineTo(605, 470); arrowUp.closePath();
+    // Laberinto: ruido pasabanda umbralado
+    const w = new Float32Array(n);
+    for (let p = 0; p < n; p++) w[p] = Math.random() - 0.5;
+    const fine = Float32Array.from(w), coarse = Float32Array.from(w);
+    blur(fine, tmp, P, 0.35 * u);
+    blur(coarse, tmp, P, 0.6 * u);
+    let ss = 0;
+    for (let p = 0; p < n; p++) { fine[p] -= coarse[p]; ss += fine[p] * fine[p]; }
+    const k = 4 / Math.sqrt(ss / n);
 
-    // Rojos, naranjas y rosas (h, s, l)
-    const warm = [
-      [355, 75, 55], [5, 80, 52], [15, 85, 55], [25, 90, 58], [32, 90, 60],
-      [340, 70, 65], [330, 65, 70], [350, 60, 72], [10, 70, 45], [20, 60, 68],
-    ];
-    const rnd = (a, b) => a + Math.random() * (b - a);
+    const up = Math.random() < 0.5, right = Math.random() < 0.5;
+    const mv = arrowMask(P, up ? 0 : Math.PI), mh = arrowMask(P, right ? Math.PI / 2 : -Math.PI / 2);
+    blur(mv, tmp, P, u);
+    blur(mh, tmp, P, u);
 
-    const step = 13;
-    for (let gy = 0; gy < H + step; gy += step) {
-      for (let gx = 0; gx < W + step; gx += step) {
-        const x = gx + rnd(-4, 4) + (((gy / step) | 0) % 2 ? step / 2 : 0);
-        const y = gy + rnd(-4, 4);
-        let col;
-        if (ctx.isPointInPath(arrowRight, x, y) && Math.random() < 0.6) {
-          col = [185 + rnd(-6, 6), rnd(38, 55), rnd(55, 66)];
-        } else if (ctx.isPointInPath(arrowUp, x, y) && Math.random() < 0.6) {
-          col = [228 + rnd(-6, 6), rnd(38, 55), rnd(58, 68)];
-        } else {
-          const w = pick(warm);
-          col = [w[0] + rnd(-5, 5), w[1] + rnd(-10, 10), w[2] + rnd(-6, 6)];
-        }
-        ctx.fillStyle = `hsl(${col[0]},${col[1]}%,${col[2]}%)`;
-        ctx.beginPath();
-        ctx.arc(x, y, rnd(3, 7.5), 0, Math.PI * 2);
-        ctx.fill();
-      }
+    // Señuelos: flechas falsas que solo cambian el contraste del laberinto
+    // (la app no las ve). Las primeras 3, grandes y centradas como las reales.
+    const decoy = new Float32Array(n), force = DEMO_AMP * 0.79 / 77;
+    const nDecoys = 6 + Math.floor(Math.random() * 5);
+    for (let d = 0; d < nDecoys; d++) {
+      const big = d < 3;
+      const ang = big && Math.random() < 0.75 ? (Math.random() * 4 | 0) * Math.PI / 2 : Math.random() * 2 * Math.PI;
+      const sc = big ? 0.85 + 0.15 * Math.random() : 0.45 + 0.45 * Math.random();
+      const lo = 8 * u, span = P - 16 * u;
+      const cx = big ? P / 2 : lo + Math.random() * span, cy = big ? P / 2 : lo + Math.random() * span;
+      const m = arrowMask(P, ang, sc, cx, cy), w = (Math.random() < 0.5 ? -1 : 1) * (0.7 + 0.6 * Math.random()) * force;
+      for (let p = 0; p < n; p++) decoy[p] += w * m[p];
     }
+    blur(decoy, tmp, P, u);
+
+    const img = ctx.createImageData(P, P), o = img.data;
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+      const t = 0.5 + 0.5 * Math.tanh(k * fine[p]), car = 2 * t - 1;
+      const sv = 2 * mv[p] - 1, sh = 2 * mh[p] - 1, tk = 0.5 + (t - 0.5) * (1 + decoy[p]);
+      let r = VIOLET[0] + (ORANGE[0] - VIOLET[0]) * tk + DEMO_AMP / 2 * car * sv;
+      let gg = VIOLET[1] + (ORANGE[1] - VIOLET[1]) * tk + DEMO_AMP / 2 * car * sh;
+      let bb = VIOLET[2] + (ORANGE[2] - VIOLET[2]) * tk + DEMO_AMP / 2 * car * sh;
+      // Impresión simulada
+      r = 255 * Math.pow(r / 255, 1.1) + 0.1 * (gg - bb);
+      gg = 255 * Math.pow(gg / 255, 1.15) - 0.05 * r;
+      const luz = 0.75 + 0.4 * (p % P) / P;
+      o[i] = r * luz + (Math.random() - 0.5) * 8;
+      o[i + 1] = gg * luz + (Math.random() - 0.5) * 8;
+      o[i + 2] = bb * luz + (Math.random() - 0.5) * 8;
+      o[i + 3] = 255;
+    }
+    ctx.putImageData(img, g.x, g.y);
+    drawMark(ctx, g.x + MARK_MM * u, g.y + MARK_MM * u, u);
     return c;
   }
 
