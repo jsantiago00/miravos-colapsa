@@ -125,13 +125,13 @@
     flex: none; width: 38px; height: 38px; border-radius: 50%;
     display: grid; place-items: center; font: 900 17px/1 var(--serif); color: #fff;
   }
-  .filter[data-f="red"] .gate { background: var(--red); }
-  .filter[data-f="cyan"] .gate { background: var(--cyan); color: var(--navy); }
+  .filter[data-f="z"] .gate { background: var(--red); }
+  .filter[data-f="x"] .gate { background: var(--cyan); color: var(--navy); }
   .filter .txt { display: flex; flex-direction: column; gap: 3px; }
   .filter .txt b { font: 900 21px/1 var(--serif); }
   .filter .txt small { font-size: 11px; color: var(--muted); letter-spacing: .04em; }
-  .filter[data-f="red"].active { border-color: var(--red); background: #3b1d2c; }
-  .filter[data-f="cyan"].active { border-color: var(--cyan); background: #123947; }
+  .filter[data-f="z"].active { border-color: var(--red); background: #3b1d2c; }
+  .filter[data-f="x"].active { border-color: var(--cyan); background: #123947; }
   .filter.active .txt small { color: var(--cream); }
 
   #actions { display: grid; grid-template-columns: 1.35fr 1fr 1fr; gap: 8px; }
@@ -144,7 +144,7 @@
   .btn:disabled { opacity: .35; }
   .btn:active, .filter:active, .chip:active { transform: scale(.97); }
 
-  #tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  #tools { display: grid; grid-template-columns: 1fr; gap: 8px; }
   .chip {
     min-height: 34px; border-radius: 999px; border: 1px solid var(--line);
     background: transparent; color: var(--muted); font: 500 12px var(--sans); letter-spacing: .04em;
@@ -188,13 +188,13 @@
 
 <div id="panel">
   <div id="filters">
-    <button class="filter" data-f="red">
-      <span class="gate">R</span>
-      <span class="txt"><b>Rojo</b><small>medir en eje rojo</small></span>
+    <button class="filter" data-f="z">
+      <span class="gate">Z</span>
+      <span class="txt"><b>Eje Z</b><small>↑ sí · ↓ no</small></span>
     </button>
-    <button class="filter" data-f="cyan">
-      <span class="gate">C</span>
-      <span class="txt"><b>Cian</b><small>medir en eje cian</small></span>
+    <button class="filter" data-f="x">
+      <span class="gate">X</span>
+      <span class="txt"><b>Eje X</b><small>→ sí · ← no</small></span>
     </button>
   </div>
   <div id="actions">
@@ -203,7 +203,6 @@
     <button class="btn" id="photoBtn">Sacar foto</button>
   </div>
   <div id="tools">
-    <button class="chip" data-opt="thresh">Umbral</button>
     <button class="chip" data-opt="debug">Debug</button>
   </div>
   <input type="file" id="fileInput" accept="image/*" capture="environment">
@@ -217,22 +216,43 @@
 
   const MAX_SIDE = 720;
   const GUIDE = 0.72;       // lado del recuadro guía, fracción del lado menor del cuadro
-  const PROC_MAX = 320;     // resolución a la que se procesa la carta
   const CARD_MM = 40;       // el recuadro guía es la carta cortada
-  const CORNER = 0.275;     // esquinas que se ignoran (ahí va la marca del ojo)
-  const EDGE = 0.05;        // franja del borde que se ignora
-  const MARK_MM = 5.6;      // centro de la marca, desde el borde de la carta
+
+  // Código espectral: igual que tools/codigo_espectral.py. Cada respuesta es
+  // un acorde de K ondas (ciclos/mm, en el marco de la carta) sumado al dorso
+  // en el eje azul−amarillo. Se lee por la energía en esas frecuencias, así
+  // que no importa dónde ni cómo esté girada la carta.
+  const P = 256;            // lado al que se lleva la carta para leer
+  const BIN = CARD_MM;      // bins de FFT por ciclo/mm
+  const BAND = [0.5, 0.8];
+  const K = 3;
+  const CODES = {
+    z_si: [[0.5613, 0.0990], [0.2847, 0.7047], [-0.7210, 0.1665]],
+    z_no: [[0.1030, 0.7328], [0.6390, 0.2326], [0.7238, 0.1539]],
+    x_si: [[-0.2134, 0.6981], [-0.5501, 0.3997], [-0.6954, 0.2531]],
+    x_no: [[-0.3009, 0.7088], [0.7034, 0.3132], [-0.5843, 0.0821]],
+  };
+  // z = diferencia SÍ−NO en unidades de ruido. En simulación: con código z ≥ 11
+  // aun a 3 niveles; sin código z ≤ 4. Revisar con la hoja de prueba impresa.
+  const Z_SURE = 8, Z_MAYBE = 5;
+  const ROTS = [], SCALES = [];
+  for (let a = 0; a < 180; a += 1.5) ROTS.push(a * Math.PI / 180);
+  for (let s = 0.88; s < 1.121; s += 0.03) SCALES.push(s);
 
   const QUIPS_COLLAPSE = [
-    'Medido. Ahora la flecha no se mueve.',
+    'Medido. Ahora la respuesta no se mueve.',
     'El estado quedó definido.',
     'Lo que medís, queda.',
     'Ni el gato de Schrödinger se movió.',
   ];
   const QUIPS_FILTER = {
-    red: ['Medido en eje rojo', 'Lo cian se apaga. Mirá vos.'],
-    cyan: ['Medido en eje cian', 'Lo rojo se apaga. Mirá vos.'],
+    z: ['Medir en eje Z', '↑ es SÍ, ↓ es NO.'],
+    x: ['Medir en eje X', '→ es SÍ, ← es NO.'],
   };
+  // Como en el frente: en Z las flechas son verticales, en X horizontales.
+  // SÍ es el sentido positivo de los ejes de un gráfico (autovalor +1).
+  const ARROWS = { z: { si: '↑', no: '↓' }, x: { si: '→', no: '←' } };
+  const ANGLES = { z: { si: 0, no: Math.PI }, x: { si: Math.PI / 2, no: -Math.PI / 2 } };
 
   const $ = id => document.getElementById(id);
   const view = $('view');
@@ -240,16 +260,16 @@
   const work = document.createElement('canvas');
   const wctx = work.getContext('2d', { willReadFrequently: true });
   const proc = document.createElement('canvas');
+  proc.width = proc.height = P;
   const pctx = proc.getContext('2d', { willReadFrequently: true });
   const video = $('video');
 
   const state = {
-    filter: null,       // null | 'red' | 'cyan'
+    filter: null,       // null | 'z' | 'x' (eje en el que se mide)
     source: 'demo',     // 'demo' | 'camera' | 'photo'
     frozen: false,
     stream: null,
-    thresh: false,      // umbral binario en vez de grises
-    debug: false,       // crudo · descorrelado · final, lado a lado
+    debug: false,       // carta · canal azul−amarillo · espectro
   };
 
   let raw = null;       // ImageData del frame original
@@ -287,10 +307,10 @@
 
     const c = $('caption');
     if (state.source === 'demo' && !state.filter) {
-      c.innerHTML = 'Hay dos flechas escondidas. <em>Tocá Rojo o Cian</em> para verlas.';
+      c.innerHTML = 'Este dorso esconde dos respuestas. <em>Medí en eje Z o en eje X</em>.';
     } else if (state.source === 'camera' && !state.filter) {
-      c.innerHTML = 'Encuadrá la carta en el recuadro, <em>con el ojo arriba a la izquierda</em>.';
-    } else if (!state.debug) {
+      c.innerHTML = 'Encuadrá el dorso de una carta en el recuadro y <em>elegí un eje</em>.';
+    } else if (!state.filter) {
       c.textContent = '';
     }
   }
@@ -308,256 +328,276 @@
     return { x: (W - s) >> 1, y: (H - s) >> 1, s };
   }
 
-  // ---------- Procesamiento de la carta ----------
-  // Buffers de trabajo, uno por tamaño de procesamiento.
-  // ignore marca lo que no entra en ajustes ni percentiles: las esquinas (marca
-  // del ojo) y una franja en el borde (mesa o cartas vecinas por mal encuadre).
-  let buf = null;
-  function buffers(P) {
-    if (buf && buf.P === P) return buf;
-    const n = P * P, f = () => new Float32Array(n);
-    const ignore = new Uint8Array(n), k = Math.round(P * CORNER), e = Math.round(P * EDGE);
-    for (let y = 0; y < P; y++) {
-      for (let x = 0; x < P; x++) {
-        const inCorner = (x < k || x >= P - k) && (y < k || y >= P - k);
-        const onEdge = x < e || x >= P - e || y < e || y >= P - e;
-        ignore[y * P + x] = inCorner || onEdge ? 1 : 0;
-      }
-    }
-    buf = { P, n, S: f(), N: f(), D: f(), F: f(), M1: f(), M2: f(), tmp: f(), ignore,
-            img: pctx.createImageData(P, P) };
-    return buf;
-  }
-
+  // ---------- Utilidades numéricas ----------
   // Promedio móvil en una dirección, replicando el borde
-  function boxPass(src, dst, P, r, horiz) {
-    const step = horiz ? 1 : P, lstep = horiz ? P : 1, inv = 1 / (2 * r + 1), last = P - 1;
-    for (let l = 0; l < P; l++) {
+  function boxPass(src, dst, n, r, horiz) {
+    const step = horiz ? 1 : n, lstep = horiz ? n : 1, inv = 1 / (2 * r + 1), last = n - 1;
+    for (let l = 0; l < n; l++) {
       const base = l * lstep;
       let acc = src[base] * (r + 1);
       for (let i = 1; i <= r; i++) acc += src[base + Math.min(i, last) * step];
-      for (let i = 0; i < P; i++) {
+      for (let i = 0; i < n; i++) {
         dst[base + i * step] = acc * inv;
         acc += src[base + Math.min(i + r + 1, last) * step] - src[base + Math.max(i - r, 0) * step];
       }
     }
   }
 
-  // Tres pasadas de caja ≈ gaussiana de desvío sigma. El resultado queda en a.
-  function blur(a, tmp, P, sigma) {
+  // Tres pasadas de caja ≈ gaussiana de desvío sigma, sobre un cuadrado n × n
+  function blur(a, tmp, n, sigma) {
     const r = Math.max(1, Math.round((Math.sqrt(4 * sigma * sigma + 1) - 1) / 2));
     for (let k = 0; k < 3; k++) {
-      boxPass(a, tmp, P, r, true);
-      boxPass(tmp, a, P, r, false);
+      boxPass(a, tmp, n, r, true);
+      boxPass(tmp, a, n, r, false);
     }
   }
 
-  function meanOutside(a, ignore) {
-    let s = 0, c = 0;
-    for (let p = 0; p < a.length; p++) if (!ignore[p]) { s += a[p]; c++; }
-    return s / c;
+  // FFT radix 2 de largo P, en el lugar
+  const REV = new Uint16Array(P), COS = new Float64Array(P / 2), SIN = new Float64Array(P / 2);
+  for (let i = 0, bits = Math.log2(P); i < P; i++) {
+    let r = 0;
+    for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b);
+    REV[i] = r;
   }
+  for (let k = 0; k < P / 2; k++) { COS[k] = Math.cos(2 * Math.PI * k / P); SIN[k] = Math.sin(2 * Math.PI * k / P); }
 
-  function percentiles(a, ignore, plo, phi) {
-    const s = [];
-    for (let p = 0; p < a.length; p += 3) if (!ignore[p]) s.push(a[p]);
-    s.sort((x, y) => x - y);
-    return [s[Math.floor(s.length * plo)], s[Math.min(s.length - 1, Math.floor(s.length * phi))]];
-  }
-
-  // Pendiente local de S contra N, en ventanas gaussianas de desvío sigma:
-  //   a(x) = cov(S, N) / var(N)
-  // La flecha cambia esa pendiente adentro y afuera. La luz multiplica S y N
-  // por igual, así que la pendiente no cambia con la iluminación, y el cruce de
-  // tinta que meta la impresión es el mismo en toda la carta: solo corre el fondo.
-  // Resultado en D.
-  function localSlope(b, sigma) {
-    const { P, n, S, N, D, F, M1, M2, tmp } = b;
-    F.set(S); blur(F, tmp, P, sigma);                       // E[S]
-    D.set(N); blur(D, tmp, P, sigma);                       // E[N]
-    for (let p = 0; p < n; p++) { M1[p] = S[p] * N[p]; M2[p] = N[p] * N[p]; }
-    blur(M1, tmp, P, sigma);                                // E[SN]
-    blur(M2, tmp, P, sigma);                                // E[N²]
-    for (let p = 0; p < n; p++) {
-      const mn = D[p];
-      D[p] = (M1[p] - F[p] * mn) / (M2[p] - mn * mn + 1);
+  function fft(re, im) {
+    for (let i = 0; i < P; i++) {
+      const j = REV[i];
+      if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
     }
-  }
-
-  // Estira entre percentiles y pinta con el color del filtro
-  function paint(a, b, plo, phi, binary) {
-    const { n, ignore, img } = b, o = img.data, red = state.filter === 'red';
-    let [lo, hi] = percentiles(a, ignore, plo, phi);
-    if (hi - lo < 1e-6) hi = lo + 1;
-    const k = 255 / (hi - lo);
-    let thr = -1;
-    if (binary) {
-      // Umbral de Otsu sobre los valores ya estirados
-      const hist = new Float64Array(256);
-      for (let p = 0; p < n; p++) {
-        if (ignore[p]) continue;
-        const v = (a[p] - lo) * k;
-        hist[v < 0 ? 0 : v > 255 ? 255 : v | 0]++;
-      }
-      let tot = 0, sum = 0;
-      for (let i = 0; i < 256; i++) { tot += hist[i]; sum += i * hist[i]; }
-      let w0 = 0, s0 = 0, best = -1;
-      for (let i = 0; i < 256; i++) {
-        w0 += hist[i]; s0 += i * hist[i];
-        if (!w0 || w0 === tot) continue;
-        const m0 = s0 / w0, m1 = (sum - s0) / (tot - w0), bv = w0 * (tot - w0) * (m0 - m1) ** 2;
-        if (bv > best) { best = bv; thr = i; }
+    for (let size = 2; size <= P; size *= 2) {
+      const half = size / 2, step = P / size;
+      for (let i = 0; i < P; i += size) {
+        for (let j = 0; j < half; j++) {
+          const a = i + j, b = a + half, c = COS[j * step], s = SIN[j * step];
+          const tr = re[b] * c + im[b] * s, ti = im[b] * c - re[b] * s;
+          re[b] = re[a] - tr; im[b] = im[a] - ti;
+          re[a] += tr; im[a] += ti;
+        }
       }
     }
-    for (let p = 0, i = 0; p < n; p++, i += 4) {
-      let v = (a[p] - lo) * k;
-      v = v < 0 ? 0 : v > 255 ? 255 : v;
-      if (thr >= 0) v = v > thr ? 255 : 0;
-      const t = v * 0.3;
-      if (red) { o[i] = v; o[i + 1] = t; o[i + 2] = t; }
-      else { o[i] = t; o[i + 1] = v; o[i + 2] = v; }
-      o[i + 3] = 255;
-    }
-    pctx.putImageData(img, 0, 0);
   }
 
-  // Pipeline sobre el recuadro guía. Por cada etapa pedida ('raw' = canal crudo,
-  // 'carrier' = portadora G − B, 'final') pinta el resultado en `proc` y llama a draw.
-  function processCard(g, stages, draw) {
-    const P = Math.min(g.s, PROC_MAX), mm = P / CARD_MM;
-    if (proc.width !== P) { proc.width = P; proc.height = P; }
+  // Espectro de potencia 2D de a (P × P real)
+  const rowRe = new Float64Array(P), rowIm = new Float64Array(P);
+  function power2d(a, outRe, outIm, E) {
+    for (let y = 0; y < P; y++) {
+      for (let x = 0; x < P; x++) { rowRe[x] = a[y * P + x]; rowIm[x] = 0; }
+      fft(rowRe, rowIm);
+      for (let x = 0; x < P; x++) { outRe[y * P + x] = rowRe[x]; outIm[y * P + x] = rowIm[x]; }
+    }
+    for (let x = 0; x < P; x++) {
+      for (let y = 0; y < P; y++) { rowRe[y] = outRe[y * P + x]; rowIm[y] = outIm[y * P + x]; }
+      fft(rowRe, rowIm);
+      for (let y = 0; y < P; y++) E[y * P + x] = rowRe[y] * rowRe[y] + rowIm[y] * rowIm[y];
+    }
+  }
+
+  // ---------- Lectura de la carta ----------
+  const n2 = P * P, f32 = () => new Float32Array(n2);
+  const B = { C: f32(), Y: f32(), L: f32(), M: f32(), W: f32(), tmp: f32(), re: new Float64Array(n2),
+              im: new Float64Array(n2), E: new Float64Array(n2), Emax: new Float64Array(n2) };
+  const HANN = Float32Array.from({ length: P }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (P - 1)));
+  const RING = [];
+  for (let y = 0; y < P; y++) {
+    for (let x = 0; x < P; x++) {
+      const fx = (x < P / 2 ? x : x - P) / BIN, fy = (y < P / 2 ? y : y - P) / BIN, r = Math.hypot(fx, fy);
+      if (r > BAND[0] && r < BAND[1]) RING.push(y * P + x);
+    }
+  }
+
+  // Canal azul−amarillo sin fondo, sin los trazos del dibujo y con ventana.
+  // Los trazos se detectan por luminancia: el código está compensado para no
+  // cambiarla, así que el umbral puede ser bajo. El fondo se estima solo con
+  // lo que queda, para que los trazos no dejen halo. Resultado en B.C.
+  function prepare(px) {
+    const { C, Y, L, M, W, tmp } = B, mm = P / CARD_MM;
+    for (let p = 0, i = 0; p < n2; p++, i += 4) {
+      C[p] = px[i + 2] - (px[i] + px[i + 1]) / 2;
+      Y[p] = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+    }
+    L.set(Y); blur(L, tmp, P, 0.5 * mm);
+    for (let p = 0; p < n2; p++) M[p] = Math.abs(Y[p] - L[p]) > 6 ? 1 : 0;
+    blur(M, tmp, P, 0.3 * mm);
+    for (let p = 0; p < n2; p++) { M[p] = M[p] < 0.05 ? 1 : 0; L[p] = C[p] * M[p]; W[p] = M[p]; }
+    blur(L, tmp, P, mm);
+    blur(W, tmp, P, mm);
+    for (let y = 0; y < P; y++) {
+      for (let x = 0; x < P; x++) {
+        const p = y * P + x;
+        C[p] = M[p] ? (C[p] - L[p] / Math.max(W[p], 1e-3)) * HANN[x] * HANN[y] : 0;
+      }
+    }
+  }
+
+  let smooth = null;     // promedio de los últimos cuadros en vivo
+
+  // Lee la carta del recuadro guía: energía de cada acorde en el giro y la
+  // escala que mejor encajan.
+  function readCard(g) {
     pctx.drawImage(work, g.x, g.y, g.s, g.s, 0, 0, P, P);
     const px = pctx.getImageData(0, 0, P, P).data;
-    const b = buffers(P), { n, S, N, D, F, tmp, ignore } = b;
+    prepare(px);
+    const { C, re, im, E, Emax } = B;
+    power2d(C, re, im, E);
 
-    // 1. Canal oculto (S) y portadora (N = G − B, el laberinto visible)
-    const red = state.filter === 'red';
-    for (let p = 0, i = 0; p < n; p++, i += 4) {
-      S[p] = red ? px[i] : (px[i + 1] + px[i + 2]) / 2;
-      N[p] = px[i + 1] - px[i + 2];
+    let mu = 0;
+    for (const p of RING) mu += E[p];
+    mu = mu / RING.length || 1;
+    // Máximo en la vecindad 3 × 3: tolera medio bin de error en giro o escala
+    for (let y = 0; y < P; y++) {
+      for (let x = 0; x < P; x++) {
+        let m = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = ((y + dy) & (P - 1)) * P;
+          for (let dx = -1; dx <= 1; dx++) m = Math.max(m, E[yy + ((x + dx) & (P - 1))]);
+        }
+        Emax[y * P + x] = m / mu;
+      }
     }
 
-    // 2. Pendiente local de S contra N (ventana de 1,5 mm)
-    localSlope(b, 1.5 * mm);
-
-    // 3. Adentro de la flecha la pendiente es mayor (así la arma el generador:
-    //    lo naranja, que es G − B alto, sube). Se invierte para que la flecha
-    //    quede oscura sobre fondo claro. Lo ignorado (marca, borde) se rellena
-    //    con la mediana y se suaviza un poco más.
-    const p50 = percentiles(D, ignore, 0.5, 0.5)[0];
-    for (let p = 0; p < n; p++) F[p] = ignore[p] ? -p50 : -D[p];
-    blur(F, tmp, P, 0.75 * mm);
-
-    // Señal/ruido: distancia flecha–fondo sobre la dispersión del fondo
-    const [q05, q50, q75] = [0.05, 0.5, 0.75].map(q => percentiles(F, ignore, q, q)[0]);
-    const snr = (q50 - q05) / Math.max(1e-9, (q75 - q50) / 0.674);
-
-    // 4. Estiramiento por percentiles (o umbral) y salida
-    for (const st of stages) {
-      if (st === 'raw') paint(S, b, 0.01, 0.99, false);
-      else if (st === 'carrier') paint(N, b, 0.01, 0.99, false);
-      else paint(F, b, 0.02, 0.98, state.thresh);
-      draw(st, P);
+    const names = Object.keys(CODES);
+    let best = null;
+    for (const th of ROTS) {
+      const c = Math.cos(th), s = Math.sin(th);
+      for (const sc of SCALES) {
+        const e = {};
+        for (const k of names) {
+          let sum = 0;
+          for (const [fx, fy] of CODES[k]) {
+            const gx = Math.round(sc * BIN * (c * fx - s * fy)), gy = Math.round(sc * BIN * (s * fx + c * fy));
+            sum += Emax[(gy & (P - 1)) * P + (gx & (P - 1))];
+          }
+          e[k] = sum;
+        }
+        const total = Math.max(e.z_si, e.z_no) + Math.max(e.x_si, e.x_no);
+        if (!best || total > best.total) best = { total, e, th, sc };
+      }
     }
-    return { snr, ...detectArrow(b, red) };
-  }
 
-  // ---------- Detección automática ----------
-  // Las dos flechas posibles de un filtro comparten el centro del tronco y
-  // difieren en dónde está la cabeza. Se compara el promedio del resultado en
-  // la zona que solo tiene la una contra la que solo tiene la otra; z mide esa
-  // diferencia en unidades del ruido del fondo, contando que el resultado está
-  // suavizado (los píxeles vecinos no son independientes).
-  // Calibrado con la hoja de prueba simulada: sin flecha z ≤ 0,8; con flecha a
-  // 8 niveles z ≥ 1,1 y siempre en la dirección correcta. Revisar con impresas.
-  const Z_SURE = 2, Z_MAYBE = 1.2;
-  let masks = null;
-  function arrowMasks(P) {
-    if (masks && masks.P === P) return masks;
-    const bin = m => Uint8Array.from(m, v => v > 0.5 ? 1 : 0);
-    const raw = [0, Math.PI, Math.PI / 2, -Math.PI / 2].map(a => arrowMask(P, a));
-    // Fondo para medir ruido: a más de ~3 mm de cualquier flecha, donde no
-    // llega el borde difuminado de la propia flecha
-    const near = new Float32Array(P * P), tmp = new Float32Array(P * P);
-    for (const m of raw) for (let p = 0; p < near.length; p++) near[p] = Math.max(near[p], m[p]);
-    blur(near, tmp, P, 2 * P / CARD_MM);
-    masks = { P, up: bin(raw[0]), down: bin(raw[1]), right: bin(raw[2]), left: bin(raw[3]),
-              far: Uint8Array.from(near, v => v < 0.02 ? 1 : 0) };
-    return masks;
-  }
-
-  function detectArrow(b, red) {
-    const { P, n, F, ignore } = b, mk = arrowMasks(P);
-    const a = red ? mk.up : mk.right, c = red ? mk.down : mk.left;
-    let sa = 0, na = 0, sc = 0, nc = 0, sb = 0, sbb = 0, nb = 0;
-    for (let p = 0; p < n; p++) {
-      if (ignore[p]) continue;
-      const v = F[p];
-      if (a[p] && !c[p]) { sa += v; na++; }
-      else if (c[p] && !a[p]) { sc += v; nc++; }
-      else if (mk.far[p]) { sb += v; sbb += v * v; nb++; }
-    }
-    if (!na || !nc || nb < 2) return { dir: null, z: 0 };
-    const mb = sb / nb, sdb = Math.sqrt(Math.max(1e-12, sbb / nb - mb * mb));
-    const mmPx = P / CARD_MM, corrArea = 4 * Math.PI * (1.7 * mmPx) ** 2;
-    // La flecha es oscura: la zona exclusiva más oscura es la que está
-    const d = sc / nc - sa / na;
-    const z = d / (sdb * Math.sqrt(corrArea * (1 / na + 1 / nc)));
-    const dir = red ? (z > 0 ? 'up' : 'down') : (z > 0 ? 'right' : 'left');
-    return { dir, z: Math.abs(z) };
-  }
-
-  // Flecha nítida sobre el recuadro: llena si la lectura es segura, punteada si es dudosa
-  function drawVerdict(g, res) {
-    if (!res.dir || res.z < Z_MAYBE) return;
-    const ang = { up: 0, right: Math.PI / 2, down: Math.PI, left: -Math.PI / 2 }[res.dir];
-    const u = g.s / CARD_MM, L = 28 * u, t = 6 * u, hw = 16 * u, hl = 11 * u;
-    vctx.save();
-    vctx.translate(g.x + g.s / 2, g.y + g.s / 2);
-    vctx.rotate(ang);
-    vctx.beginPath();
-    vctx.moveTo(0, -L / 2); vctx.lineTo(hw / 2, -L / 2 + hl); vctx.lineTo(t / 2, -L / 2 + hl);
-    vctx.lineTo(t / 2, L / 2); vctx.lineTo(-t / 2, L / 2); vctx.lineTo(-t / 2, -L / 2 + hl);
-    vctx.lineTo(-hw / 2, -L / 2 + hl); vctx.closePath();
-    vctx.lineJoin = 'round';
-    vctx.lineWidth = Math.max(2, 0.6 * u);
-    vctx.strokeStyle = '#141d3a';
-    if (res.z >= Z_SURE) {
-      vctx.fillStyle = 'rgba(243, 238, 226, .92)';
-      vctx.fill();
-      vctx.stroke();
+    // En vivo, se promedian los últimos cuadros para que no titile
+    let e = best.e;
+    if (state.source === 'camera' && !state.frozen) {
+      if (smooth) for (const k of names) e[k] = smooth[k] = 0.6 * smooth[k] + 0.4 * e[k];
+      else smooth = { ...e };
     } else {
-      vctx.setLineDash([8, 6]);
-      vctx.strokeStyle = '#f3eee2';
-      vctx.stroke();
+      smooth = null;
     }
-    vctx.restore();
+
+    const z = f => (e[f + '_si'] - e[f + '_no']) / Math.sqrt(2 * K);
+    return { z: z('z'), x: z('x'), th: best.th, sc: best.sc };
   }
 
-  function verdictText(res) {
-    if (!res.dir || res.z < Z_MAYBE) return 'No se lee. Encuadrá la carta y buscá más luz.';
-    const arrow = { up: '↑', down: '↓', right: '→', left: '←' }[res.dir];
-    return res.z >= Z_SURE ? `${arrow} · lectura segura` : `${arrow}? · dudosa, probá de nuevo`;
+  function verdict(res) {
+    const z = res[state.filter];
+    const level = Math.abs(z) >= Z_SURE ? 'sure' : Math.abs(z) >= Z_MAYBE ? 'maybe' : 'none';
+    return { answer: z > 0 ? 'si' : 'no', z: Math.abs(z), level };
   }
 
+  function verdictText(v) {
+    if (v.level === 'none') return 'No se lee. Encuadrá el dorso y buscá más luz.';
+    const word = v.answer === 'si' ? 'SÍ' : 'NO', arrow = ARROWS[state.filter][v.answer];
+    const value = v.answer === 'si' ? '+1' : '−1', eje = state.filter.toUpperCase();
+    return v.level === 'sure' ? `Eje ${eje}: ${arrow} · decí ${word} (${value})`
+                              : `Eje ${eje}: ${arrow}? · dudosa, probá de nuevo`;
+  }
+
+  // ---------- Dibujo ----------
   function drawGuide(g) {
     vctx.save();
     vctx.strokeStyle = '#f3eee2';
     vctx.lineWidth = 2;
     vctx.setLineDash([10, 7]);
     vctx.strokeRect(g.x + 0.5, g.y + 0.5, g.s - 1, g.s - 1);
-    // Dónde tiene que quedar el ojo
-    vctx.setLineDash([]);
-    vctx.globalAlpha = 0.8;
-    const m = g.s * MARK_MM / CARD_MM;
+    vctx.restore();
+  }
+
+  // La flecha medida en grande, y debajo lo que hay que decir: SÍ (verde) o
+  // NO (rojo), con su valor (+1 o −1)
+  function drawVerdict(g, v) {
+    const cx = g.x + g.s / 2, cy = g.y + g.s / 2, u = g.s / 100;
+    vctx.save();
+    vctx.fillStyle = 'rgba(15, 22, 48, .8)';
     vctx.beginPath();
-    vctx.ellipse(g.x + m, g.y + m, g.s * 4.75 / CARD_MM, g.s * 2.8 / CARD_MM, 0, 0, Math.PI * 2);
+    vctx.roundRect(cx - 36 * u, cy - 38 * u, 72 * u, 76 * u, 8 * u);
+    vctx.fill();
+    vctx.textAlign = 'center';
+    vctx.textBaseline = 'middle';
+    if (v.level === 'none') {
+      vctx.fillStyle = '#9aa6c7';
+      vctx.font = `700 ${9 * u}px "Space Grotesk", system-ui, sans-serif`;
+      vctx.fillText('no se lee', cx, cy);
+    } else {
+      const si = v.answer === 'si';
+      vctx.globalAlpha = v.level === 'sure' ? 1 : 0.5;
+      drawArrow(cx, cy - 14 * u, 34 * u, ANGLES[state.filter][v.answer]);
+      vctx.fillStyle = si ? '#4cc38a' : '#e0473c';
+      vctx.font = `900 ${20 * u}px Fraunces, Georgia, serif`;
+      vctx.fillText(si ? 'SÍ' : 'NO', cx, cy + 17 * u);
+      vctx.fillStyle = '#f3eee2';
+      vctx.font = `700 ${7 * u}px "Space Grotesk", system-ui, sans-serif`;
+      vctx.fillText(v.level === 'sure' ? (si ? '+1' : '−1') : 'dudosa', cx, cy + 31 * u);
+    }
+    vctx.restore();
+  }
+
+  // Flecha crema con borde navy; angle 0 = arriba, sentido horario
+  function drawArrow(cx, cy, len, angle) {
+    const t = len * 0.22, hw = len * 0.58, hl = len * 0.4;
+    vctx.save();
+    vctx.translate(cx, cy);
+    vctx.rotate(angle);
+    vctx.beginPath();
+    vctx.moveTo(0, -len / 2); vctx.lineTo(hw / 2, -len / 2 + hl); vctx.lineTo(t / 2, -len / 2 + hl);
+    vctx.lineTo(t / 2, len / 2); vctx.lineTo(-t / 2, len / 2); vctx.lineTo(-t / 2, -len / 2 + hl);
+    vctx.lineTo(-hw / 2, -len / 2 + hl); vctx.closePath();
+    vctx.fillStyle = '#f3eee2';
+    vctx.strokeStyle = '#141d3a';
+    vctx.lineWidth = len * 0.05;
+    vctx.lineJoin = 'round';
+    vctx.fill();
     vctx.stroke();
     vctx.restore();
   }
 
-  function snrText(r) {
-    return `señal/ruido ${r.snr.toFixed(1)} · z ${r.z.toFixed(1)} · ${verdictText(r)}`;
+  // Debug: espectro centrado en escala logarítmica, con los acordes marcados
+  // en el giro y la escala encontrados (verde = SÍ, rojo = NO del eje activo)
+  function paintSpectrum(res) {
+    const img = pctx.createImageData(P, P), o = img.data, E = B.Emax;
+    for (let y = 0; y < P; y++) {
+      for (let x = 0; x < P; x++) {
+        const v = Math.min(255, Math.max(0, 40 * Math.log10(1 + E[((y + P / 2) & (P - 1)) * P + ((x + P / 2) & (P - 1))]) * 2));
+        const i = (y * P + x) * 4;
+        o[i] = o[i + 1] = o[i + 2] = v; o[i + 3] = 255;
+      }
+    }
+    pctx.putImageData(img, 0, 0);
+    const f = state.filter, c = Math.cos(res.th), s = Math.sin(res.th);
+    for (const k of Object.keys(CODES)) {
+      pctx.strokeStyle = k === `${f}_si` ? '#4cc38a' : k === `${f}_no` ? '#e0473c' : '#5b6790';
+      pctx.lineWidth = 1.5;
+      for (const [fx, fy] of CODES[k]) {
+        for (const sg of [1, -1]) {
+          const gx = sg * res.sc * BIN * (c * fx - s * fy), gy = sg * res.sc * BIN * (s * fx + c * fy);
+          pctx.beginPath();
+          pctx.arc(P / 2 + gx, P / 2 + gy, 4, 0, Math.PI * 2);
+          pctx.stroke();
+        }
+      }
+    }
+  }
+
+  function paintChannel() {
+    const img = pctx.createImageData(P, P), o = img.data, C = B.C;
+    let m = 0;
+    for (let p = 0; p < n2; p++) m = Math.max(m, Math.abs(C[p]));
+    const k = 127 / Math.max(1, m * 0.5);
+    for (let p = 0, i = 0; p < n2; p++, i += 4) {
+      const v = Math.max(0, Math.min(255, 128 + C[p] * k));
+      o[i] = o[i + 1] = v; o[i + 2] = 255 - v * 0.4; o[i + 3] = 255;
+    }
+    pctx.putImageData(img, 0, 0);
   }
 
   function loadStatic(img, w, h) {
@@ -567,9 +607,6 @@
     render();
   }
 
-  // Filtro rojo: lee R, donde está la flecha vertical.
-  // Filtro cian: lee (G+B)/2, donde está la flecha horizontal.
-  // Las flechas están escondidas en cómo esos canales siguen al laberinto (G − B).
   function render() {
     if (!raw) return;
     const W = work.width, H = work.height, g = guideRect(W, H);
@@ -577,40 +614,37 @@
     if (state.filter && state.debug) {
       // Tres paneles: en fila si la pantalla es ancha, en columna si es alta
       const stage = $('stage'), wide = stage.clientWidth >= stage.clientHeight;
-      const P = Math.min(g.s, PROC_MAX), gap = 8, lab = 22;
+      const gap = 8, lab = 22;
       const VW = wide ? 3 * P + 2 * gap : P, VH = wide ? P + lab : 3 * (P + lab) + 2 * gap;
       if (view.width !== VW || view.height !== VH) { view.width = VW; view.height = VH; }
       vctx.fillStyle = '#0f1630';
       vctx.fillRect(0, 0, VW, VH);
       vctx.font = '500 13px "Space Grotesk", system-ui, sans-serif';
-      vctx.fillStyle = '#9aa6c7';
-      const names = { raw: 'crudo', carrier: 'portadora (G − B)', final: 'final' };
-      let k = 0;
-      const res = processCard(g, ['raw', 'carrier', 'final'], st => {
+      const res = readCard(g);
+      const panels = [['carta', () => pctx.drawImage(work, g.x, g.y, g.s, g.s, 0, 0, P, P)],
+                      ['canal azul−amarillo', paintChannel], ['espectro', () => paintSpectrum(res)]];
+      panels.forEach(([name, paint], k) => {
         const x = wide ? k * (P + gap) : 0, y = wide ? 0 : k * (P + lab + gap);
+        paint();
         vctx.drawImage(proc, x, y + lab);
-        vctx.fillText(names[st], x + 2, y + 15);
-        k++;
+        vctx.fillStyle = '#9aa6c7';
+        vctx.fillText(name, x + 2, y + 15);
       });
-      $('caption').textContent = snrText(res);
+      const fmt = z => `${z > 0 ? 'SÍ' : 'NO'} z ${Math.abs(z).toFixed(1)}`;
+      $('caption').textContent = `eje Z ${fmt(res.z)} · eje X ${fmt(res.x)} · giro ${(res.th * 180 / Math.PI).toFixed(0)}° · escala ${res.sc.toFixed(2)}`;
       return;
     }
 
     if (view.width !== W || view.height !== H) { view.width = W; view.height = H; }
     vctx.putImageData(raw, 0, 0);
-    if (state.filter) {
-      vctx.fillStyle = 'rgba(15, 22, 48, .72)';
-      vctx.fillRect(0, 0, W, H);
-      const res = processCard(g, ['final'], (st, P) => {
-        vctx.imageSmoothingEnabled = true;
-        vctx.drawImage(proc, 0, 0, P, P, g.x, g.y, g.s, g.s);
-      });
-      drawGuide(g);
-      drawVerdict(g, res);
-      $('caption').textContent = verdictText(res);
-      return;
-    }
     drawGuide(g);
+    if (state.filter) {
+      const v = verdict(readCard(g));
+      vctx.fillStyle = state.filter === 'z' ? 'rgba(224, 71, 60, .16)' : 'rgba(47, 211, 220, .16)';
+      vctx.fillRect(g.x, g.y, g.s, g.s);
+      drawVerdict(g, v);
+      $('caption').textContent = verdictText(v);
+    }
   }
 
   function loop() {
@@ -629,6 +663,7 @@
       // Tocar el filtro activo lo apaga
       state.filter = state.filter === btn.dataset.f ? null : btn.dataset.f;
       document.querySelectorAll('.filter').forEach(b => b.classList.toggle('active', b.dataset.f === state.filter));
+      smooth = null;
       if (state.filter) {
         wave();
         const [title, msg] = QUIPS_FILTER[state.filter];
@@ -732,126 +767,99 @@
       URL.revokeObjectURL(url);
       updateLabels();
       wave();
-      toast('Qubit capturado', state.filter ? '' : 'Ahora elegí Rojo o Cian.');
+      toast('Qubit capturado', state.filter ? '' : 'Ahora medí en eje Z o en eje X.');
     };
     img.onerror = () => { URL.revokeObjectURL(url); toast('Ups', 'No se pudo leer la imagen'); };
     img.src = url;
   });
 
   // ---------- Imagen demo ----------
-  // Un dorso como los de tools/generar_dorsos.py, con una "impresión" simulada
-  // (curva de tono, cruce de tintas, luz despareja y ruido de cámara).
-  const DEMO_AMP = 12;
-  const VIOLET = [109, 79, 163], ORANGE = [233, 162, 59];
+  // El dorso de las cartas (la flor de órbitas) con el código a la misma
+  // amplitud que las impresas, girado al azar y con luz despareja y ruido.
+  const DEMO_AMP = 4;
+  const LUM_COMP = 0.0722 / (0.2126 + 0.7152);
 
-  // Máscara 0..1 de una flecha; angle 0 = arriba, sentido horario.
-  // Por defecto centrada y de tamaño completo (la real).
-  function arrowMask(P, angle, scale = 1, cx = P / 2, cy = P / 2) {
-    const c = document.createElement('canvas');
-    c.width = c.height = P;
-    const ctx = c.getContext('2d'), u = scale * P / CARD_MM;
-    const L = 28 * u, t = 6 * u, hw = 16 * u, hl = 11 * u;
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
-    ctx.beginPath();
-    ctx.moveTo(0, -L / 2); ctx.lineTo(hw / 2, -L / 2 + hl); ctx.lineTo(t / 2, -L / 2 + hl);
-    ctx.lineTo(t / 2, L / 2); ctx.lineTo(-t / 2, L / 2); ctx.lineTo(-t / 2, -L / 2 + hl);
-    ctx.lineTo(-hw / 2, -L / 2 + hl); ctx.closePath();
-    ctx.fill();
-    const a = ctx.getImageData(0, 0, P, P).data, m = new Float32Array(P * P);
-    for (let p = 0; p < m.length; p++) m[p] = a[p * 4 + 3] / 255;
-    return m;
-  }
-
-  // Ojo del logo: almendra crema con borde navy, iris celeste y flechita
-  function drawMark(ctx, cx, cy, u) {
-    const almond = (w, h) => {
-      ctx.beginPath();
-      ctx.moveTo(cx - w / 2, cy);
-      ctx.quadraticCurveTo(cx, cy - h, cx + w / 2, cy);
-      ctx.quadraticCurveTo(cx, cy + h, cx - w / 2, cy);
-      ctx.closePath();
-    };
+  // Medidas en mm desde el centro, tomadas de tools/dorso_base.png
+  function drawFlower(ctx, cx, cy, u) {
     ctx.save();
-    ctx.fillStyle = ctx.strokeStyle = '#141d3a';
-    ctx.lineWidth = 0.9 * u; ctx.lineJoin = 'round';
-    almond(9.5 * u, 5.6 * u); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#f3eee2';
-    almond(9.5 * 0.82 * u, 5.6 * 0.72 * u); ctx.fill();
-    ctx.fillStyle = '#7fb0e3'; ctx.beginPath(); ctx.arc(cx, cy, 1.75 * u, 0, Math.PI * 2); ctx.fill();
-    const rp = 1.75 * 0.58 * u, a = rp * 0.8;
-    ctx.fillStyle = '#141d3a'; ctx.beginPath(); ctx.arc(cx, cy, rp, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#f3eee2';
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - a); ctx.lineTo(cx + a * 0.7, cy); ctx.lineTo(cx + a * 0.28, cy);
-    ctx.lineTo(cx + a * 0.28, cy + a); ctx.lineTo(cx - a * 0.28, cy + a);
-    ctx.lineTo(cx - a * 0.28, cy); ctx.lineTo(cx - a * 0.7, cy); ctx.closePath();
-    ctx.fill();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = '#13203c';
+    ctx.fillRect(-22 * u, -22 * u, 44 * u, 44 * u);
+    ctx.strokeStyle = '#48709a'; ctx.lineWidth = 0.35 * u;
+    ctx.beginPath(); ctx.arc(0, 0, 18.8 * u, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#74acdf'; ctx.lineWidth = 0.5 * u;
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4;
+      ctx.beginPath();
+      ctx.ellipse(11 * u * Math.cos(a), 11 * u * Math.sin(a), 6 * u, 3.9 * u, a, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = ctx.strokeStyle = '#f0b03c';
+    for (let k = 0; k < 24; k++) {
+      const a = k * Math.PI / 12;
+      ctx.beginPath(); ctx.arc(17.6 * u * Math.cos(a), 17.6 * u * Math.sin(a), 0.65 * u, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.lineWidth = 0.25 * u;
+    for (let k = 0; k < 16; k++) {
+      const a = k * Math.PI / 8;
+      ctx.beginPath();
+      ctx.moveTo(2.75 * u * Math.cos(a), 2.75 * u * Math.sin(a));
+      ctx.lineTo(5 * u * Math.cos(a), 5 * u * Math.sin(a));
+      ctx.stroke();
+    }
+    ctx.lineWidth = 0.45 * u;
+    ctx.beginPath(); ctx.arc(0, 0, 5.2 * u, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 2.75 * u, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 
   function makeDemo() {
-    const W = 720, H = 540;
+    const W = 720, H = 540, g = guideRect(W, H), u = g.s / CARD_MM;
+
+    // La carta con sangrado, con el código sumado como en el generador
+    const N = Math.round(44 * u), card = document.createElement('canvas');
+    card.width = card.height = N;
+    const cctx = card.getContext('2d', { willReadFrequently: true });
+    drawFlower(cctx, N / 2, N / 2, u);
+    const img = cctx.getImageData(0, 0, N, N), o = img.data;
+    const answers = { z: Math.random() < 0.5 ? 'si' : 'no', x: Math.random() < 0.5 ? 'si' : 'no' };
+    const waves = [...CODES[`z_${answers.z}`], ...CODES[`x_${answers.x}`]]
+      .map(([fx, fy]) => [fx, fy, Math.random() * 2 * Math.PI]);
+    const code = new Float32Array(N * N);
+    let ss = 0;
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const X = (x - N / 2) / u, Y = (y - N / 2) / u;
+        let v = 0;
+        for (const [fx, fy, ph] of waves) v += Math.cos(2 * Math.PI * (fx * X + fy * Y) + ph);
+        code[y * N + x] = v; ss += v * v;
+      }
+    }
+    const k = DEMO_AMP / Math.sqrt(ss / (N * N));
+    for (let p = 0, i = 0; p < N * N; p++, i += 4) {
+      const c = code[p] * k;
+      o[i] -= LUM_COMP * c; o[i + 1] -= LUM_COMP * c; o[i + 2] += c;
+    }
+    cctx.putImageData(img, 0, 0);
+
+    // Sobre la mesa, girada al azar
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
+    const ctx = c.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#3a3f52';
     ctx.fillRect(0, 0, W, H);
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(Math.random() * 2 * Math.PI);
+    ctx.drawImage(card, -N / 2, -N / 2);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    const g = guideRect(W, H), P = g.s, n = P * P, u = P / CARD_MM;
-    const tmp = new Float32Array(n);
-
-    // Laberinto: ruido pasabanda umbralado
-    const w = new Float32Array(n);
-    for (let p = 0; p < n; p++) w[p] = Math.random() - 0.5;
-    const fine = Float32Array.from(w), coarse = Float32Array.from(w);
-    blur(fine, tmp, P, 0.35 * u);
-    blur(coarse, tmp, P, 0.6 * u);
-    let ss = 0;
-    for (let p = 0; p < n; p++) { fine[p] -= coarse[p]; ss += fine[p] * fine[p]; }
-    const k = 4 / Math.sqrt(ss / n);
-
-    const up = Math.random() < 0.5, right = Math.random() < 0.5;
-    const mv = arrowMask(P, up ? 0 : Math.PI), mh = arrowMask(P, right ? Math.PI / 2 : -Math.PI / 2);
-    blur(mv, tmp, P, u);
-    blur(mh, tmp, P, u);
-
-    // Señuelos: flechas falsas que corren G y B igual en lo naranja y lo
-    // violeta (se ven, la app no las lee). Una grande al centro y el resto
-    // repartidas, como en tools/generar_dorsos.py.
-    const decoy = new Float32Array(n), centers = [[P / 2, P / 2]];
-    const nDecoys = 6 + Math.floor(Math.random() * 5), lo = 8 * u, span = P - 16 * u;
-    for (let tries = 0; centers.length < nDecoys && tries < 400; tries++) {
-      const c = [lo + Math.random() * span, lo + Math.random() * span];
-      const far = centers.every(o => Math.hypot(c[0] - o[0], c[1] - o[1]) > 10 * u);
-      if (far && !(c[0] < 14 * u && c[1] < 14 * u)) centers.push(c);
+    // Luz despareja y ruido de cámara
+    const frame = ctx.getImageData(0, 0, W, H), f = frame.data;
+    for (let p = 0, i = 0; p < W * H; p++, i += 4) {
+      const luz = 0.8 + 0.3 * (p % W) / W;
+      for (let ch = 0; ch < 3; ch++) f[i + ch] = f[i + ch] * luz + (Math.random() - 0.5) * 6;
     }
-    centers.forEach(([cx, cy], d) => {
-      const ang = d === 0 ? (Math.random() * 4 | 0) * Math.PI / 2 : Math.random() * 2 * Math.PI;
-      const sc = d === 0 ? 0.8 + 0.15 * Math.random() : 0.38 + 0.22 * Math.random();
-      const m = arrowMask(P, ang, sc, cx, cy), w = (Math.random() < 0.5 ? -1 : 1) * (0.7 + 0.6 * Math.random()) * DEMO_AMP;
-      for (let p = 0; p < n; p++) decoy[p] += w * m[p];
-    });
-    blur(decoy, tmp, P, 0.5 * u);
-
-    const img = ctx.createImageData(P, P), o = img.data;
-    for (let p = 0, i = 0; p < n; p++, i += 4) {
-      const t = 0.5 + 0.5 * Math.tanh(k * fine[p]), car = 2 * t - 1;
-      const sv = 2 * mv[p] - 1, sh = 2 * mh[p] - 1;
-      let r = VIOLET[0] + (ORANGE[0] - VIOLET[0]) * t + DEMO_AMP / 2 * car * sv;
-      let gg = VIOLET[1] + (ORANGE[1] - VIOLET[1]) * t + DEMO_AMP / 2 * car * sh + decoy[p];
-      let bb = VIOLET[2] + (ORANGE[2] - VIOLET[2]) * t + DEMO_AMP / 2 * car * sh + decoy[p];
-      // Impresión simulada
-      r = 255 * Math.pow(r / 255, 1.1) + 0.1 * (gg - bb);
-      gg = 255 * Math.pow(gg / 255, 1.15) - 0.05 * r;
-      const luz = 0.75 + 0.4 * (p % P) / P;
-      o[i] = r * luz + (Math.random() - 0.5) * 8;
-      o[i + 1] = gg * luz + (Math.random() - 0.5) * 8;
-      o[i + 2] = bb * luz + (Math.random() - 0.5) * 8;
-      o[i + 3] = 255;
-    }
-    ctx.putImageData(img, g.x, g.y);
-    drawMark(ctx, g.x + MARK_MM * u, g.y + MARK_MM * u, u);
+    ctx.putImageData(frame, 0, 0);
     return c;
   }
 
