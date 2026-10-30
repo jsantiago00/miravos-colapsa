@@ -28,6 +28,10 @@ muestra a cada uno solo lo que le toca.
    - *Soy X* → escanear el dorso → animación "Midiendo" (dura lo mismo para
      todos) → **SÍ o NO** con una línea debajo → *Ocultar* (con la misma
      pausa para todos).
+   - Al leer la carta, el celu vibra corto y la imagen del dorso queda
+     congelada mientras la onda de "Midiendo" sale de ella. El SÍ/NO aparece
+     entre ruido que se limpia en 0,9 s. Todo dura lo mismo para todos (con
+     "reducir movimiento" del sistema, sin el ruido).
    - La línea debajo está siempre, en el mismo lugar: "Nada más en tu
      detector", la acción si te tocó una ("Par EPR: Juan midió de verdad SÍ"),
      o, para el Observador, "Sos el Observador…".

@@ -108,10 +108,30 @@
   .visor { position: relative; border-radius: 16px; overflow: hidden; background: #000; margin-bottom: 12px; aspect-ratio: 4 / 3; }
   .visor canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
   .visor .vacio { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 20px; text-align: center; }
+  .visor .vacio[hidden] { display: none; }
   .estado { display: flex; justify-content: space-between; color: var(--muted); font-size: .9rem; margin-bottom: 12px; }
 
   .onda { width: 120px; height: 120px; margin: 30px auto; border-radius: 50%; border: 3px solid var(--cream); animation: onda 1.2s ease-out infinite; }
   @keyframes onda { 0% { transform: scale(.3); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+
+  /* Midiendo: la imagen del dorso queda congelada y la onda sale de la carta */
+  .visor.medir img { width: 100%; height: 100%; object-fit: contain; display: block; animation: congelar 1.2s ease-out forwards; }
+  @keyframes congelar { from { filter: none; } to { filter: brightness(.45) saturate(.4) blur(1.5px); } }
+  .visor.medir .onda { position: absolute; left: 50%; top: 50%; width: 46%; height: auto; aspect-ratio: 1; margin: 0;
+    animation: ondaVisor 1.2s ease-out infinite; }
+  .visor.medir .onda.d2 { animation-delay: .4s; }
+  @keyframes ondaVisor { 0% { transform: translate(-50%, -50%) scale(.2); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; } }
+
+  /* El SÍ/NO aparece entre ruido, igual para todos */
+  .grande { position: relative; }
+  .grande .ruido { position: absolute; left: 0; top: -8px; width: 100%; height: calc(100% + 16px); image-rendering: pixelated; pointer-events: none;
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 40%, transparent 72%); mask-image: radial-gradient(ellipse at center, #000 40%, transparent 72%); }
+  .grande.aparece > span { animation: nitido .9s ease-out both; }
+  @keyframes nitido { from { filter: blur(10px); opacity: .15; } to { filter: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .visor.medir img, .grande.aparece > span { animation: none; }
+    .visor.medir .onda { animation-duration: 2.4s; }
+  }
 
   .reloj { font: 900 5.5rem/1 var(--serif); text-align: center; margin: 18px 0; font-variant-numeric: tabular-nums; }
   .reloj.fin { color: var(--orange); }
@@ -166,6 +186,7 @@
 
   let G = null;
   let lectura = null;     // ID del último dorso leído (no se guarda)
+  let congelado = null;   // foto del dorso al leerlo, para "Midiendo" (no se guarda)
   const nom = p => esc(G.nombres[p]);
 
   // ---------- Guardado ----------
@@ -445,7 +466,8 @@
       }
       case 'escaneo': return pEscaneo();
       case 'midiendo':
-        return pintar(`<section class="privada"><p class="eyebrow">Midiendo</p><div class="onda"></div>
+        return pintar(`<section class="privada"><p class="eyebrow">Midiendo</p>
+          <div class="visor medir">${congelado ? `<img src="${congelado}" alt="">` : ''}<div class="onda"></div><div class="onda d2"></div></div>
           <p class="muted" style="text-align:center">El qubit colapsa…</p></section>`);
       case 'otraCarta':
         return pintar(`<section class="tarjeta privada"><h2>¿Es la misma carta?</h2>
@@ -495,6 +517,32 @@
       <div class="grande">${res ? SN(res) : '<span class="nada">···</span>'}</div>
       <p class="linea">${linea}</p>${barra(G.config.pausaSeg)}
       <button class="primario espera" data-a="ocultar">Ocultar</button></section>`);
+    revelar();
+  }
+
+  // Ruido que se va limpiando sobre el SÍ/NO (0,9 s, igual para todos)
+  const SIN_MOV = matchMedia('(prefers-reduced-motion: reduce)');
+  function revelar() {
+    const g = app.querySelector('.grande');
+    if (!g || SIN_MOV.matches) return;
+    g.classList.add('aparece');
+    const W = 72, H = 30, DUR = 900;
+    const cv = document.createElement('canvas');
+    cv.className = 'ruido'; cv.width = W; cv.height = H;
+    g.appendChild(cv);
+    const c = cv.getContext('2d'), img = c.createImageData(W, H), d = img.data, t0 = performance.now();
+    const cuadro = ahora => {
+      if (!cv.isConnected) return;
+      const t = Math.min(1, (ahora - t0) / DUR), p = 1 - t * t;
+      for (let i = 0; i < d.length; i += 4) {
+        const claro = Math.random() < 0.5;   // crema o azul de la tarjeta
+        d[i] = claro ? 243 : 27; d[i + 1] = claro ? 238 : 38; d[i + 2] = claro ? 226 : 72;
+        d[i + 3] = Math.random() < p * 0.9 ? 255 * p : 0;
+      }
+      c.putImageData(img, 0, 0);
+      if (t < 1) requestAnimationFrame(cuadro); else cv.remove();
+    };
+    requestAnimationFrame(cuadro);
   }
 
   A.ocultar = () => {
@@ -513,6 +561,7 @@
 
   function pEscaneo() {
     const R = Motor.rondaActual(G);
+    congelado = null;
     const prueba = G.prueba ? `<div class="pila">
         <button class="primario" data-a="simular">Simular escaneo</button>
         ${R.carta !== null ? '<button class="sec" data-a="simularOtra">Simular otra carta</button>' : ''}</div>` : '';
@@ -645,6 +694,9 @@
   // Misma animación y mismo tiempo para todos, después se mide
   function leido(l) {
     lectura = l;
+    // Se congela lo último que vio la cámara y vibra como un clic del detector
+    try { congelado = !G.prueba && work.width ? work.toDataURL('image/jpeg', 0.7) : null; } catch { congelado = null; }
+    if (navigator.vibrate) navigator.vibrate(25);
     ir({ paso: 'midiendo' });
     timers.push(setTimeout(() => { if (G && G.ui.paso === 'midiendo') medir(l, false); }, MIDIENDO_MS));
   }
