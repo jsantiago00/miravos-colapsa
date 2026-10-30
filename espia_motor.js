@@ -1,4 +1,4 @@
-// Motor de El Espía: las reglas, sin pantalla ni cámara. Lo usan espia.html
+// Motor de El Espía: las reglas, sin pantalla ni cámara. Lo usan index.html
 // y los tests (node --test tests/). Todo el estado de la partida es JSON, para
 // poder guardarlo y retomarlo. Las funciones que sortean reciben rng (por
 // defecto Math.random) para que los tests sean deterministas.

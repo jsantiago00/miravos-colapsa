@@ -4,16 +4,16 @@ Modo para jugar en la mesa con las cartas reales y **un solo celular que se va
 pasando**. La app reparte los roles en secreto, lleva el estado del qubit y
 muestra a cada uno solo lo que le toca.
 
-- App: `espia.html` (el visor `index.html` sigue igual, aparte).
+- App: `index.html` (es la única; `espia.html` redirige ahí). El visor aparte se sacó.
 - Reglas: `espia_motor.js`, sin pantalla ni cámara. Tests: `npm test`.
-- Lector del ID de los dorsos: `lector.js`, compartido con el visor (ver `COMO_FUNCIONA.md`).
+- Lector del ID de los dorsos: `lector.js` (ver `COMO_FUNCIONA.md`).
 - Referencia vieja con bots: `docs/el_espia_bots.html`. Las reglas de abajo mandan sobre ella.
 
 ---
 
 ## 1. Cómo se juega desde la app
 
-1. **Preparar.** Abrí `espia.html`, elegí la cantidad de jugadores (4 a 8) y
+1. **Preparar.** Abrí la app (`index.html`), elegí la cantidad de jugadores (4 a 8) y
    escribí los nombres **en el orden en que están sentados**. "Modo prueba"
    reemplaza la cámara por un botón "Simular escaneo". En "Reglas
    configurables" están la tabla de roles, las probabilidades de las acciones y
@@ -97,8 +97,6 @@ se sabe qué carta es. El detalle está en `COMO_FUNCIONA.md`.
   --solo-prueba`).
 - El escaneo es parte del juego: es lo que hace sentir el laboratorio. Por eso
   la cámara sigue en cada turno, aunque el resultado lo sortee la app.
-- El visor (`index.html`) también lee el ID y de ahí saca las respuestas Z y X
-  de cada carta (12 de cada combinación), para el juego base.
 
 En la tabla final, cada ronda dice con qué carta se jugó.
 
@@ -250,7 +248,7 @@ toda la partida. Si se hace pesado, en este orden:
 
 ### 4.4 El visor de otros celulares (tu punto 5)
 
-- Dentro de `espia.html` el escaneo está restringido: solo en tu turno, una
+- Dentro de la app el escaneo está restringido: solo en tu turno, una
   carta, con tiempo límite, y nunca muestra flecha ni eje.
 - Desde que las cartas no tienen eje, **leer el dorso con el visor en otro
   celu ya no da ninguna ventaja**: el resultado lo sortea la app y el dorso

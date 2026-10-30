@@ -92,12 +92,3 @@ test('sin carta no se lee', () => {
   }
   assert.equal(L.read(px).level, 'none');
 });
-
-test('respuestas del juego base: 12 cartas de cada combinación', () => {
-  const cuenta = {};
-  for (let id = 1; id <= L.N_IDS; id++) {
-    const { z, x } = L.respuestas(id);
-    cuenta[z + x] = (cuenta[z + x] || 0) + 1;
-  }
-  assert.deepEqual(Object.values(cuenta), [12, 12, 12, 12]);
-});

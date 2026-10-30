@@ -16,24 +16,21 @@ Un juego de cartas de "qubits". Cada carta tiene en el dorso el mismo dibujo
 (la flor de órbitas, `tools/dorso_base.png`), pero en cada dorso faltan algunos
 puntitos del anillo, en un patrón propio: eso es su **ID** (1 a 48).
 
-Del ID salen dos respuestas, para el visor:
+La app es una sola: **El Espía** (`EL_ESPIA.md`). En cada turno el jugador
+escanea el dorso; la app usa el ID solo para reconocer la carta en juego, y el
+resultado (SÍ o NO) lo sortea. El escaneo es parte del juego: es lo que hace
+sentir que se mide.
 
-| Eje | SÍ (+1) | NO (−1) |
-|-----|---------|---------|
-| Z   | ↑       | ↓       |
-| X   | →       | ←       |
-
-El jugador apunta el celular al dorso, elige **Eje Z** o **Eje X**, y la app
-"mide": muestra la flecha, SÍ/NO y +1/−1. El modo **El Espía** (`EL_ESPIA.md`)
-usa el ID solo para reconocer la carta en juego; los resultados los sortea.
+> Hasta la edición 02 había un visor aparte que sacaba del ID una respuesta fija
+> en Z y otra en X. Se sacó: nadie lo usaba y los ejes ya no se muestran.
 
 ## 2. Archivos
 
 | Archivo | Qué hace |
 |---|---|
-| `index.html` | El visor (sin dependencias salvo Google Fonts). Cámara, foto, demo, debug. |
-| `lector.js` | La lectura del ID (`PATRONES`, `read`, `respuestas`), compartida por el visor y El Espía. |
-| `espia.html` + `espia_motor.js` | El modo de juego El Espía (ver `EL_ESPIA.md`). |
+| `index.html` + `espia_motor.js` | La app: El Espía (ver `EL_ESPIA.md`). |
+| `espia.html` | Redirige a `index.html`, para que no se rompan los links viejos. |
+| `lector.js` | La lectura del ID (`PATRONES`, `read`). |
 | `tests/` | Tests (`npm test` o `node --test "tests/*.test.js"`). |
 | `docs/el_espia_bots.html` | Laboratorio de bots de El Espía (referencia, reglas viejas). |
 | `tools/codigo_puntos.py` | Escritura y lectura del ID (fuente de verdad). Lee fotos desde la compu, simula fotos de celular (`--simular`) y elige los patrones (`--elegir`). |
@@ -59,8 +56,8 @@ Código en `marcar()` de `tools/codigo_puntos.py`.
    en cualquier giro, haya al menos **4 puntitos distintos**. Un puntito mal
    leído cambia 2 (siempre faltan 7: si uno sobra, otro falta), así que nunca
    lleva a otra carta: queda "a mitad de camino" y la app pide reescanear.
-5. **Respuestas del visor**: `respuestas(id)` = `(id · 29 mod 48) mod 4` → (Z, X).
-   Salen 12 cartas de cada combinación.
+5. `tools/codigo_puntos.py` todavía tiene `respuestas(id)` (las respuestas Z/X
+   del visor viejo) y el manifiesto las imprime. La app ya no las usa.
 
 ## 4. Cómo se lee (lectura)
 
@@ -92,22 +89,12 @@ desenfoque, luz despareja y cálida, ruido, JPEG 4:2:0) se leen seguras 150 de
 condiciones peores (más desenfoque, JPEG 60, corrida 4 mm) 87 % seguras y
 ninguna equivocada. **Falta confirmarlo con la hoja de prueba impresa.**
 
-> La respuesta es una propiedad de la carta, no una dirección sobre ella. La
-> flecha que muestra la app es un dibujo del resultado. Girar la carta no
-> cambia la respuesta.
-
 ## 5. La app (`index.html`)
 
-- **Encender detector**: cámara trasera (1280 × 720 ideal). **Sacar foto**:
-  alternativa con archivo/cámara nativa. Sin nada, arranca en **demo**: dibuja
-  la flor con el patrón de una carta al azar, girada, corrida, con luz
-  despareja y ruido.
-- **Eje Z / Eje X**: elige en qué eje medir; tocar el activo lo apaga.
-- En vivo, si un cuadro no se lee, se sigue mostrando la última lectura
-  segura durante 0,6 s para que no titile. "Colapsar" congela el cuadro.
-- **Debug**: el recorte que se lee, con el anillo encontrado y cada posición
-  marcada (verde = puntito, rojo = hueco); al pie, la carta, el nivel, la
-  distancia al patrón, el margen y el contraste.
+Ver `EL_ESPIA.md`. La app nunca muestra el ID leído. Para revisar la lectura
+de la hoja de prueba impresa, sacarle fotos y leerlas con
+`python tools/codigo_puntos.py foto.jpg`, que muestra el ID, el nivel de
+lectura y el margen.
 
 ## 6. Imprimir y probar
 
@@ -129,7 +116,7 @@ python tools/codigo_puntos.py --simular 150    # simular lecturas con cámara
 - **`PATRONES` está duplicado**: en `tools/codigo_puntos.py` y en `lector.js`.
   Si cambia uno, cambia el otro. Lo mismo para `GUIA`, `AMPLIA`, `P`,
   `R_ANILLO`, `HUECOS`, la búsqueda del anillo, los umbrales
-  (`MARGEN_SEGURO`, `CONTRASTE_MIN`) y `respuestas()`.
+  (`MARGEN_SEGURO`, `CONTRASTE_MIN`).
 - Cambiar los patrones (`--elegir`) **invalida las cartas ya impresas**.
 - Si cambia el dibujo base, revisar que los puntitos sigan en el mismo anillo
   (17,6 mm, cada 15°) y que no haya otras cosas naranjas cerca de ese radio.

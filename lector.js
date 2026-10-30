@@ -1,5 +1,5 @@
-// Lector del ID de los dorsos: igual que tools/codigo_puntos.py. Lo usan el
-// visor (index.html) y El Espía (espia.html).
+// Lector del ID de los dorsos: igual que tools/codigo_puntos.py. Lo usa la
+// app (index.html) para reconocer la carta en juego.
 //
 // El dorso tiene 24 puntitos naranjas en un anillo de 17,6 mm de radio, uno
 // cada 15°. Los 8 de las puntas de los pétalos están siempre; de los otros 16,
@@ -65,12 +65,6 @@
     let d = N_PUNTOS;
     for (let s = 0; s < N_PUNTOS; s++) d = Math.min(d, popcount(girar(a, s) ^ b));
     return d;
-  }
-
-  // Respuestas del juego base de la carta (eje Z, eje X): 12 de cada combinación
-  function respuestas(id) {
-    const c = (id * 29 % N_IDS) % 4;
-    return { z: c < 2 ? 'si' : 'no', x: c % 2 === 0 ? 'si' : 'no' };
   }
 
   // ---------- Utilidades ----------
@@ -215,7 +209,7 @@
   }
 
   const Lector = { MAX_SIDE, GUIDE, AMPLIA, CARD_MM, P, N_PUNTOS, R_ANILLO, HUECOS, N_IDS, PATRONES,
-                   guideRect, readRect, workSize, read, readCanvas, respuestas, distancia };
+                   guideRect, readRect, workSize, read, readCanvas, distancia };
   if (typeof module !== 'undefined' && module.exports) module.exports = Lector;
   else raiz.Lector = Lector;
 })(typeof window !== 'undefined' ? window : globalThis);
