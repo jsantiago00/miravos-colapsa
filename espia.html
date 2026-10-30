@@ -96,6 +96,10 @@
   .nada { color: var(--muted); }
   .accion { border: 2px solid var(--orange); border-radius: 14px; padding: 12px 14px; margin: 0 0 14px; }
   .accion h3 { color: var(--orange); margin-bottom: 6px; }
+  /* Línea bajo el resultado: siempre está, con el mismo tamaño y color para
+     todos, para que de lejos no se distinga quién tuvo una acción */
+  .linea { min-height: 2.9em; text-align: center; color: var(--muted); margin: 0 0 6px; }
+  .linea .si, .linea .no { color: var(--cream); }
 
   .pausa { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 6px 0 14px; }
   .pausa i { display: block; height: 100%; width: 0; background: var(--sky); animation: llenar linear forwards; }
@@ -147,7 +151,6 @@
 
   const CLAVE = 'colapsa.espia.partida.v1';    // partida en curso
   const CLAVE_AJ = 'colapsa.espia.ajustes.v1'; // nombres y reglas de la última vez
-  const PAUSA_RES = 2;      // s antes de poder seguir desde el resultado
   const MIDIENDO_MS = 1200; // animación igual para todos al leer la carta
   const RACHA = 3;          // cuadros seguidos con el mismo ID leído seguro
   const NS = Object.keys(Motor.CONFIG_BASE.tabla).map(Number);
@@ -380,20 +383,19 @@
     const { paso, i } = G.ui;
     if (paso === 'pasar') return pintar(pasar(`Reparto de roles · ${i + 1} de ${G.n}`, i));
     const rol = G.roles[i], k = G.roles.filter(r => r.distinto).length;
-    const hay = k === 1 ? 'Hay <b>1 laboratorio distinto</b>, que mide en el otro eje' : `Hay <b>${k} laboratorios distintos</b>, que miden en el otro eje`;
+    const uno = k === 1;
     let t;
     if (rol.tipo === 'obs') {
       t = `<p class="eyebrow">Tu rol</p><h2>Sos el Observador</h2>
-        <p>Jugás con la mayoría: ganan si el más votado es un distinto. ${hay}.</p>
-        <p>No tenés escáner, pero en tu turno la app te muestra lo que midió de verdad alguien que ya pasó. Si te toca arrancar una ronda, tu detector viene calibrado con la mayoría y ves lo que marca; desde la segunda ronda, además, ves una medición de la ronda anterior.</p>
-        <p><b>Escaneá igual que todos e inventá qué dice tu escáner, como si hubieras medido.</b> Nadie tiene que darse cuenta de que sos el Observador.</p>`;
+        <p>Jugás con la mayoría, pero no medís. En tu turno vas a ver lo que midió alguien de verdad.</p>
+        <p><b>Escaneá como todos e inventá tu resultado.</b></p>`;
     } else {
       t = `<p class="eyebrow">Tu rol</p><h2>Sos un laboratorio</h2>
-        <p>Tu detector mide en un eje, Z o X, pero no sabés cuál. ${hay}. Tampoco sabés si sos uno de ellos.</p>
-        <p class="muted">Ganan la mayoría y el Observador si el más votado es un distinto. Si no, ganan los distintos.</p>`;
+        <p>Hay <b>${uno ? '1 que mide' : k + ' que miden'} distinto</b> al resto, y podés ser vos.</p>
+        <p class="muted">Si el más votado es ${uno ? 'el' : 'un'} distinto, gana la mayoría; si no, ${uno ? 'gana el distinto' : 'ganan los distintos'}.</p>`;
       if (rol.calibrado) {
         t += `<div class="accion"><h3>Tu detector vino calibrado</h3>
-          <p style="margin:0">Sabés que <b>${rol.distinto ? 'sos distinto' : 'sos de la mayoría'}</b>. Tu eje no lo sabés.</p></div>`;
+          <p style="margin:0">Sos <b>${rol.distinto ? 'distinto' : 'de la mayoría'}</b>.</p></div>`;
       }
     }
     pintar(`<section class="tarjeta privada">${t}${barra(G.config.pausaSeg)}
@@ -440,7 +442,7 @@
         }
         const prev = R.orden[k - 1];
         return pintar(`<p class="eyebrow">${ronda} · ${ORD(k)} medición</p>${asientos(R, k)}
-          ${pasar('', p, `<p class="decir">${nom(prev)}: decí en voz alta SÍ o NO. Después pasá la carta y el celu.</p>`)}`);
+          ${pasar('', p, `<p class="decir">${nom(prev)}, decí tu resultado en voz alta y pasá la carta y el celu.</p>`)}`);
       }
       case 'escaneo': return pEscaneo();
       case 'midiendo':
@@ -455,90 +457,47 @@
         return pintar(`<section class="tarjeta privada"><h2>No se leyó el dorso</h2>
           <p>Buscá más luz, encuadrá la carta en el recuadro y mantené el celu quieto.</p>
           <button class="primario" data-a="reescanear">Reintentar</button></section>`);
-      case 'resultado': {
-        let html;
-        if (!t.obs) {
-          html = `<p class="eyebrow">Tu detector marca</p><div class="grande">${SN(t.res)}</div>`;
-        } else {
-          html = vistaObservador(t, '');
-        }
-        return pintar(`<section class="tarjeta privada">${html}${barra(PAUSA_RES)}
-          <button class="primario espera" data-a="seguir">Seguir</button></section>`);
-      }
-      case 'extra': return pExtra(R, t);
-      case 'resumen': return pResumen(R, t);
+      case 'extra': case 'resumen':   // partidas guardadas con la versión anterior
+      case 'resultado': return pResultado(t);
     }
   }
 
-  // Lo que ve el Observador. Si arranca la ronda: lo que mediría la mayoría
-  // (en grande) y, salvo en la ronda 1, una medición de la ronda anterior. Si
-  // no: una medición verdadera de alguien que ya pasó (en grande).
-  function vistaObservador(t, tam) {
-    const ri = G.rondas.length - 1;
-    const otro = ve => `<b>${nom(ve.p)}</b>, en la ${ORD(ve.k)} medición${ve.ronda < ri ? ' de la ronda anterior' : ''}, midió de verdad`;
-    if (t.propio !== null && t.propio !== undefined) {
-      return `<p class="eyebrow">Sos el Observador</p>
-        <p>No tenés escáner, pero arrancás la ronda y tu detector viene calibrado con la mayoría. Marca</p>
-        <div class="grande ${tam}">${SN(t.propio)}</div>
-        ${t.ve ? `<p>Además ves que ${otro(t.ve)} ${SN(t.ve.res)}.</p>` : ''}`;
-    }
-    if (t.ve) {
-      return `<p class="eyebrow">Sos el Observador</p><p>No tenés escáner, pero ves que ${otro(t.ve)}</p>
-        <div class="grande ${tam}">${SN(t.ve.res)}</div>`;
-    }
-    return `<p class="eyebrow">Sos el Observador</p><p>No tenés escáner y en esta medición no ves nada.</p>
-      <div class="grande ${tam} nada">···</div>`;
-  }
-
-  // Segunda pantalla, la tienen todos: con acción, sin acción y el
-  // Observador. Siempre una pausa y tocar un nombre, para que el tiempo y los
-  // toques no delaten nada.
-  function pExtra(R, t) {
+  // Una sola pantalla para todos: arriba qué es, el SÍ/NO grande y siempre
+  // una línea debajo, en el mismo lugar. La acción (si hubo) va en esa línea;
+  // el Observador ve ahí que es el Observador. Misma pausa para todos.
+  function pResultado(t) {
     const a = t.accion;
-    if (a && a.tipo === 'agujero' && a.objetivo !== null) return ir({ paso: 'resumen' });
-    const otros = [...Array(G.n).keys()].filter(q => q !== t.p);
-    let texto, validos = otros;
-    if (t.obs) {
-      texto = `<p class="eyebrow">Tu escáner no funciona</p><p>Tocá cualquier nombre para seguir.</p>`;
-    } else if (!a) {
-      texto = `<p class="eyebrow">Nada más en tu detector</p><p>Tocá cualquier nombre para seguir.</p>`;
-    } else if (a.tipo === 'epr') {
-      texto = `<p class="eyebrow">Algo pasó en tu detector…</p><p><b>Tenés una acción adicional.</b> Tocá cualquier nombre para verla.</p>`;
-    } else {
-      validos = Motor.opcionesAgujero(G);
-      texto = `<p class="eyebrow">Algo pasó en tu detector…</p>
-        <p><b>Tenés una acción adicional: Agujero de gusano.</b> Elegí a alguien que ya haya medido esta carta en la ronda y vas a ver qué midió de verdad.</p>`;
+    if (a && a.tipo === 'agujero' && a.objetivo === null) {
+      // Partida guardada con la versión anterior, donde se elegía a mano
+      const ops = Motor.opcionesAgujero(G);
+      Motor.usarAgujero(G, ops[Math.floor(Math.random() * ops.length)]);
+      guardar();
     }
-    pintar(`<section class="tarjeta privada">${texto}${barra(G.config.pausaSeg)}
-      <div class="nombres">${otros.map(q => `<button class="espera" data-a="extra" data-v="${q}"
-        ${validos.includes(q) ? '' : 'data-off="1"'}>${nom(q)}</button>`).join('')}</div></section>`);
-  }
-
-  function pResumen(R, t) {
-    let html;
+    let arriba = 'Tu detector marca', res, linea;
     if (!t.obs) {
-      html = `<p class="eyebrow">Tu detector marcó</p><div class="grande chico">${SN(t.res)}</div>`;
-      const a = t.accion;
-      if (a && a.tipo === 'epr') {
-        html += `<div class="accion"><h3>Par EPR</h3><p style="margin:0">${nom(a.objetivo)}, que te pasó la carta, midió de verdad ${SN(a.res)}.</p></div>`;
-      } else if (a && a.tipo === 'agujero') {
-        html += `<div class="accion"><h3>Agujero de gusano</h3><p style="margin:0">${nom(a.objetivo)}, en la ${ORD(a.k)} medición, midió de verdad ${SN(a.res)}.</p></div>`;
-      }
-      html += `<p class="muted">Ahora decí en voz alta lo que quieras: SÍ o NO.</p>`;
+      res = t.res;
+      linea = !a ? 'Nada más en tu detector.'
+        : `<b>${a.tipo === 'epr' ? 'Par EPR' : 'Agujero de gusano'}:</b> ${nom(a.objetivo)} midió de verdad ${SN(a.res)}.`;
+    } else if (t.propio !== null && t.propio !== undefined) {
+      // Arranca la ronda: su detector viene calibrado con la mayoría
+      res = t.propio;
+      linea = t.ve ? `Sos el Observador. Ronda anterior: ${nom(t.ve.p)} midió ${SN(t.ve.res)}.`
+        : 'Sos el Observador. Inventá tu resultado.';
+    } else if (t.ve) {
+      arriba = `${nom(t.ve.p)} midió`;
+      res = t.ve.res;
+      linea = 'Sos el Observador. Inventá tu resultado.';
     } else {
-      html = vistaObservador(t, 'chico');
-      html += `<p class="muted">Inventá qué dice tu escáner y decilo en voz alta, como si hubieras medido.</p>`;
+      arriba = 'Sos el Observador';
+      res = null;
+      linea = 'Inventá tu resultado.';
     }
-    pintar(`<section class="tarjeta privada">${html}
-      <button class="primario" data-a="ocultar">Ocultar</button></section>`);
+    pintar(`<section class="tarjeta privada"><p class="eyebrow">${arriba}</p>
+      <div class="grande">${res ? SN(res) : '<span class="nada">···</span>'}</div>
+      <p class="linea">${linea}</p>${barra(G.config.pausaSeg)}
+      <button class="primario espera" data-a="ocultar">Ocultar</button></section>`);
   }
 
-  A.seguir = () => ir({ paso: 'extra' });
-  A.extra = v => {
-    const t = Motor.ultimoTurno(G);
-    if (t.accion && t.accion.tipo === 'agujero') Motor.usarAgujero(G, +v);
-    ir({ paso: 'resumen' });
-  };
   A.ocultar = () => {
     const R = Motor.rondaActual(G);
     if (G.ui.k + 1 < R.orden.length) return ir({ paso: 'pasar', k: G.ui.k + 1 });
@@ -704,7 +663,7 @@
     const R = Motor.rondaActual(G), ultimo = R.orden[R.orden.length - 1];
     const quedan = G.rondas.length < G.rondasTotal;
     pintar(`<section class="privada">
-      <p class="decir">${nom(ultimo)}: decí en voz alta SÍ o NO.</p>
+      <p class="decir">${nom(ultimo)}, decí tu resultado en voz alta.</p>
       <h2>Terminó la ronda ${G.rondas.length}</h2>
       <p>Retiren la carta. Es un buen momento para anotar en el cuaderno lo que dijo cada uno.</p>
       <button class="primario" data-a="${quedan ? 'otraRonda' : 'debate'}">${quedan ? `Empezar la ronda ${G.rondas.length + 1}` : 'Ir al debate'}</button>
@@ -780,7 +739,8 @@
     const rolDe = r => (r.tipo === 'obs' ? 'Observador'
       : (r.distinto ? 'Distinto' : 'Mayoría') + (r.calibrado ? ' · calibrado' : ''));
     const filaRol = (r, i) => `<tr><td>${nom(i)}</td><td>${rolDe(r)}</td>
-      <td>${r.eje ? r.eje.toUpperCase() : '—'}</td><td>${res.cuenta[i]}</td><td class="gris">${nom(G.votos[i])}</td></tr>`;
+      <td>${res.cuenta[i]}</td><td class="gris">${nom(G.votos[i])}</td></tr>`;
+    const lado = p => { const r = G.roles[p]; return r.tipo === 'obs' ? 'Obs.' : r.distinto ? 'Distinto' : 'Mayoría'; };
     const dijoBtn = (r, k, t) => {
       const txt = t.dijo === null ? '¿?' : t.dijo === 'si' ? 'SÍ' : 'NO';
       return `<button class="dijo sec" data-a="dijo" data-v="${r},${k}">${txt}</button>${t.dijo !== null && t.dijo !== t.res && !t.obs ? ' <span class="mintio">≠</span>' : ''}`;
@@ -789,19 +749,19 @@
       <section class="tarjeta"><h3>Ronda ${r + 1}</h3>
       <p class="hint">Se jugó con la carta ${R.carta}.</p>
       <div class="scroll"><table>
-        <tr><th>#</th><th>Quién</th><th>Eje</th><th>Midió</th><th>Detalle</th><th>Dijo</th></tr>
+        <tr><th>#</th><th>Quién</th><th>Lado</th><th>Midió</th><th>Detalle</th><th>Dijo</th></tr>
         ${R.turnos.map((t, k) => {
           const det = [];
           if (t.obs) {
-            if (t.antes) det.push('no mide (el qubit pasa igual)');
-            else det.push('arranca: mide como la mayoría (al azar)');
+            if (t.antes) det.push('no mide: el qubit pasa igual');
+            else det.push('arranca: mide como la mayoría');
             if (t.ve) det.push(`vio a ${nom(t.ve.p)} (${ORD(t.ve.k)}${t.ve.ronda < r ? ', ronda ant.' : ''}): ${SN(t.ve.res)}`);
           } else {
-            det.push(t.antes ? (t.colapso ? 'colapsó' : 'sin colapso') : 'primera (al azar)');
+            if (!t.antes) det.push('primera: al azar');
+            else if (t.colapso) det.push('se volvió a sortear');
             if (t.accion && t.accion.objetivo !== null) det.push(`${t.accion.tipo === 'epr' ? 'Par EPR' : 'Agujero'} → ${nom(t.accion.objetivo)}: ${SN(t.accion.res)}`);
-            else if (t.accion) det.push('Agujero sin usar');
           }
-          return `<tr><td>${k + 1}</td><td>${nom(t.p)}</td><td>${t.obs ? '—' : t.eje.toUpperCase()}</td>
+          return `<tr><td>${k + 1}</td><td>${nom(t.p)}</td><td>${lado(t.p)}</td>
             <td class="${t.obs ? 'gris' : ''}">${SN(t.res)}</td><td class="hint">${det.join('<br>')}</td><td>${dijoBtn(r, k, t)}</td></tr>`;
         }).join('')}
       </table></div></section>`).join('');
@@ -812,10 +772,9 @@
         <h1>${res.gana === 'mayoria' ? '¡Ganan la mayoría y el Observador!' : '¡Ganan los distintos!'}</h1>
         <p>${res.empate ? `Hubo empate entre ${masVotados}.` : `El más votado fue ${masVotados}.`}
           ${distintos.length === 1 ? 'El distinto era' : 'Los distintos eran'} <b>${distintos.map(nom).join(' y ')}</b>.
-          El Observador era <b>${nom(G.roles.findIndex(r => r.tipo === 'obs'))}</b>.
-          La mayoría medía en el eje ${G.ejeMayoria.toUpperCase()}.</p>
+          El Observador era <b>${nom(G.roles.findIndex(r => r.tipo === 'obs'))}</b>.</p>
         <div class="scroll"><table>
-          <tr><th>Jugador</th><th>Rol</th><th>Eje</th><th>Votos</th><th>Votó a</th></tr>
+          <tr><th>Jugador</th><th>Rol</th><th>Votos</th><th>Votó a</th></tr>
           ${G.roles.map(filaRol).join('')}
         </table></div>
       </section>

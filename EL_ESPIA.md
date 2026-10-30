@@ -26,21 +26,24 @@ muestra a cada uno solo lo que le toca.
 3. **Rondas.** Una carta nueva por ronda, con el dorso para arriba. La app
    muestra el orden (arriba, en fichas). En cada turno:
    - *Soy X* → escanear el dorso → animación "Midiendo" (dura lo mismo para
-     todos) → **SÍ o NO** → *Seguir*.
-   - Segunda pantalla, que tienen todos: una pausa y tocar un nombre. Ahí
-     aparece "Algo pasó en tu detector… tenés una acción adicional" si te tocó
-     una, o "Nada más en tu detector".
-   - Resumen → *Ocultar*. La siguiente pantalla le dice al que midió "decí en voz
-     alta SÍ o NO" y que pase la carta y el celu al que sigue.
+     todos) → **SÍ o NO** con una línea debajo → *Ocultar* (con la misma
+     pausa para todos).
+   - La línea debajo está siempre, en el mismo lugar: "Nada más en tu
+     detector", la acción si te tocó una ("Par EPR: Juan midió de verdad SÍ"),
+     o, para el Observador, "Sos el Observador…".
+   - La siguiente pantalla le dice al que midió que diga su resultado en voz
+     alta y pase la carta y el celu al que sigue.
    - La carta pasa por todos y **vuelve al que arrancó**, que la mide de nuevo.
 4. **Debate** con temporizador (3 min por defecto, con pausa y "+30 s").
 5. **Votación secreta** pasando el celu: cada uno elige a quién cree distinto y
    confirma. Nadie se puede votar a sí mismo.
 6. **Revelación.**
-   - Quién gana, los roles y el eje de cada uno.
+   - Quién gana y los roles (Mayoría, Distinto, Observador). Los ejes no se
+     nombran.
    - Los votos.
-   - Una tabla por ronda con la carta, lo que midió cada uno de verdad, si
-     colapsó, las acciones y lo que vio el Observador.
+   - Una tabla por ronda con la carta, el lado de cada uno, lo que midió de
+     verdad, dónde el qubit se volvió a sortear, las acciones y lo que vio el
+     Observador.
    - Opcional: la columna "Dijo" se carga tocando (¿? → SÍ → NO) y marca con ≠
      dónde alguien dijo otra cosa que lo que midió.
 
@@ -64,17 +67,17 @@ celu a X".
 | Observador escondido | Escanea igual que todos, con la misma animación y las mismas pantallas. Ve una medición verdadera al azar de un laboratorio que midió antes en la vuelta. No toca el qubit y no le salen acciones. |
 | Observador que arranca la ronda | Cuenta como si hubiera medido en el eje de la mayoría (resultado al azar), y **la app le muestra lo que marca su detector**. Desde la ronda 2 ve además una medición verdadera de la ronda anterior; en la ronda 1, nada más. Ver §4.1. |
 | Acciones | `pColapso ∈ [0,10; 0,25]` y `pSinColapso ∈ [0,10; 0,20]` se sortean por ronda. Nunca salen en la primera medición. Se muestran después del resultado, sin decir "colapsaste". |
-| Agujero de gusano | Ofrece a todos los que ya midieron la carta en la ronda (el Observador incluido), menos a uno mismo. |
+| Agujero de gusano | Automático: la app elige al azar a alguien que ya midió la carta en la ronda (el Observador incluido), menos a uno mismo. |
 | Par EPR | Automático, con el que te pasó la carta. |
 | Acción sobre el Observador | Muestra el estado del qubit en su turno, o sea lo que "habría medido" en el eje del anterior. |
 | Proporción Agujero / EPR | Configurable, 50/50 por defecto. |
 | Votación y quién gana | Si el más votado (sin empate) es un distinto, ganan la mayoría y el Observador. Si no, o si hay empate, ganan los distintos. |
 | Privacidad | Toda pantalla con información se abre con *Soy X* y se cierra con *Ocultar*. Si se apaga la pantalla o se cambia de app, se tapa. Se pide que la pantalla no se apague sola (Wake Lock). |
-| Sin tells de tiempo | Todos los turnos tienen los mismos pasos y los mismos toques: Soy → escaneo → Seguir → tocar un nombre → Ocultar. Las pausas mínimas son iguales para todos. |
+| Sin tells de tiempo | Todos los turnos tienen los mismos pasos y los mismos toques: Soy → escaneo → Ocultar. Una sola pantalla de resultado, con la misma forma y la misma pausa para todos. |
 | Persistencia | `localStorage` después de cada paso. Al retomar se vuelve a la pantalla pública del turno. Lo ya medido no se vuelve a sortear. |
 | Modo prueba | "Simular escaneo" y "Simular otra carta" (para probar el aviso). |
 | Escaneo restringido | La cámara se abre **solo en tu turno** y lee **una** carta. Se cierra sola cuando lee el mismo ID seguro tres cuadros seguidos (unos 0,3 s), o cuando se acaba el tiempo (20 s, configurable). Hay "Sacar foto" por si el navegador no da video. |
-| Tests | 21 del motor (primera medición al azar incluida): reparto, orden, qubit, acciones, Agujero, EPR, Observador, votación y guardado. Más 2 del lector con cartas sintéticas. |
+| Tests | 23 del motor (primera medición al azar incluida): reparto, orden, qubit, acciones, Agujero, EPR, Observador, votación y guardado. Más 2 del lector con cartas sintéticas. |
 
 ### El ID en el dorso y el chequeo de "misma carta"
 

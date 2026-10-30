@@ -120,7 +120,7 @@
 
     if (t.obs) {
       // El Observador no mide: el qubit pasa por él sin cambiar, y lo que
-      // "habría medido" es el estado en ese momento. Ve una medición
+      // "habría medido" es el estado en ese momento (lo mismo que el anterior). Ve una medición
       // verdadera de alguien que midió antes en la vuelta.
       // Si arranca la ronda, cuenta como si hubiera medido en el eje de la
       // mayoría y ve ese resultado (propio). Además ve una medición de la
@@ -144,7 +144,12 @@
       // Acciones: nunca en la primera medición de la ronda
       if (antes && rng() < (t.colapso ? R.pc : R.ps)) {
         if (rng() < G.config.pAgujero) {
-          t.accion = { tipo: 'agujero', objetivo: null, k: null, res: null };
+          // Agujero de gusano: la app elige al azar a alguien que ya midió
+          // este qubit en la ronda (el Observador incluido), menos uno mismo
+          const opciones = [...new Set(R.turnos.map(x => x.p))].filter(q => q !== p);
+          const objetivo = azar(rng, opciones);
+          const visto = R.turnos.filter(x => x.p === objetivo).pop();
+          t.accion = { tipo: 'agujero', objetivo, k: visto.k, res: visto.res };
         } else {
           const prev = R.turnos[k - 1];
           t.accion = { tipo: 'epr', objetivo: prev.p, k: prev.k, res: prev.res };
@@ -158,7 +163,9 @@
   const ultimoTurno = G => { const R = rondaActual(G); return R.turnos[R.turnos.length - 1]; };
 
   // A quién puede mirar el Agujero de gusano del último turno: cualquiera que
-  // ya haya medido este qubit en la ronda (el Observador incluido), menos uno mismo.
+  // ya haya medido este qubit en la ronda (el Observador incluido), menos uno
+  // mismo. medir() ya elige al azar; esto queda para partidas guardadas con la
+  // versión anterior, donde el objetivo lo elegía el jugador.
   function opcionesAgujero(G) {
     const R = rondaActual(G), t = ultimoTurno(G);
     return [...new Set(R.turnos.slice(0, t.k).map(x => x.p))].filter(p => p !== t.p);

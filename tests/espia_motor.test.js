@@ -178,32 +178,41 @@ test('Par EPR: muestra lo que midió de verdad el que pasó la carta', () => {
   assert.equal(turno.accion.res, t0.res);
 });
 
-test('Agujero de gusano: solo ofrece a quien ya midió en la ronda, y muestra la verdad', () => {
-  const G = partida(['z', 'x', 'z', 'obs'], { ps: 1, pc: 1, pAgujero: 1 });
-  M.empezarRonda(G);
-  const t0 = M.medir(G, CARTA).turno;  // Ada (z)
-  const t1 = M.medir(G, CARTA).turno;  // Bruno (x)
-  assert.equal(t1.accion.tipo, 'agujero');
-  assert.deepEqual(M.opcionesAgujero(G), [0]);
-  assert.throws(() => M.usarAgujero(G, 2));
-  assert.throws(() => M.usarAgujero(G, 1));
-  assert.equal(M.usarAgujero(G, 0).res, t0.res);
-  const t2 = M.medir(G, CARTA).turno;  // Caro (z)
-  assert.equal(t2.accion.tipo, 'agujero');
-  assert.deepEqual(M.opcionesAgujero(G).sort(), [0, 1]);
-  assert.equal(M.usarAgujero(G, 1).res, t1.res);
+test('Agujero de gusano: la app elige al azar a alguien que ya midió en la ronda, y muestra la verdad', () => {
+  for (let rep = 0; rep < 30; rep++) {
+    const G = partida(['z', 'x', 'z', 'obs'], { ps: 1, pc: 1, pAgujero: 1 });
+    M.empezarRonda(G);
+    const t0 = M.medir(G, CARTA).turno;  // Ada (z)
+    const t1 = M.medir(G, CARTA).turno;  // Bruno (x)
+    assert.equal(t1.accion.tipo, 'agujero');
+    assert.equal(t1.accion.objetivo, 0);
+    assert.equal(t1.accion.res, t0.res);
+    const t2 = M.medir(G, CARTA).turno;  // Caro (z)
+    assert.ok([0, 1].includes(t2.accion.objetivo));
+    assert.equal(t2.accion.res, [t0, t1][t2.accion.objetivo].res);
+  }
+});
+
+test('Agujero de gusano: con el tiempo elige a todos los posibles', () => {
+  const vistos = new Set();
+  for (let rep = 0; rep < 60; rep++) {
+    const G = partida(['z', 'x', 'z', 'obs'], { ps: 1, pc: 1, pAgujero: 1 });
+    M.empezarRonda(G);
+    M.medir(G, CARTA); M.medir(G, CARTA);
+    vistos.add(M.medir(G, CARTA).turno.accion.objetivo);
+  }
+  assert.deepEqual([...vistos].sort(), [0, 1]);
 });
 
 test('Agujero de gusano en la vuelta final: el que arrancó no se elige a sí mismo', () => {
-  const G = partida(['z', 'x', 'z', 'obs'], { ps: 1, pc: 1, pAgujero: 1 });
-  M.empezarRonda(G);
-  for (let i = 0; i < 4; i++) {
-    const { turno } = M.medir(G, CARTA);
-    if (turno.accion) M.usarAgujero(G, M.opcionesAgujero(G)[0]);
+  for (let rep = 0; rep < 30; rep++) {
+    const G = partida(['z', 'x', 'z', 'obs'], { ps: 1, pc: 1, pAgujero: 1 });
+    M.empezarRonda(G);
+    for (let i = 0; i < 4; i++) M.medir(G, CARTA);
+    const { turno } = M.medir(G, CARTA);   // Ada otra vez
+    assert.equal(turno.p, 0);
+    assert.ok([1, 2, 3].includes(turno.accion.objetivo));
   }
-  const { turno } = M.medir(G, CARTA);   // Ada otra vez
-  assert.equal(turno.p, 0);
-  assert.deepEqual(M.opcionesAgujero(G).sort(), [1, 2, 3]);
 });
 
 // ---------- Observador ----------
@@ -226,11 +235,16 @@ test('Observador elegido por un Agujero de gusano o un Par EPR: muestra el estad
   let G = partida(['z', 'x', 'obs', 'z'], { pc: 1, ps: 1, pAgujero: 1 });
   M.empezarRonda(G);
   M.medir(G, CARTA);
-  const t1 = M.medir(G, CARTA).turno; M.usarAgujero(G, 0);
+  const t1 = M.medir(G, CARTA).turno;
   M.medir(G, CARTA);   // Observador
-  M.medir(G, CARTA);   // Dani
-  assert.ok(M.opcionesAgujero(G).includes(2));
-  assert.equal(M.usarAgujero(G, 2).res, t1.res);
+  const vistos = new Set();
+  for (let rep = 0; rep < 60; rep++) {
+    const H = JSON.parse(JSON.stringify(G));
+    const t3 = M.medir(H, CARTA).turno;   // Dani
+    vistos.add(t3.accion.objetivo);
+    if (t3.accion.objetivo === 2) assert.equal(t3.accion.res, t1.res);
+  }
+  assert.ok(vistos.has(2));
 
   G = partida(['z', 'x', 'obs', 'z'], { pc: 1, ps: 1, pAgujero: 0 });
   M.empezarRonda(G);
@@ -329,7 +343,6 @@ test('la partida se puede guardar y retomar a mitad de ronda', () => {
   const G2 = JSON.parse(JSON.stringify(G));
   while (!M.rondaTerminada(M.rondaActual(G2))) {
     const { turno } = M.medir(G2, CARTA, rng);
-    if (turno.accion && turno.accion.tipo === 'agujero') M.usarAgujero(G2, M.opcionesAgujero(G2)[0]);
   }
   assert.equal(M.rondaActual(G2).turnos.length, 7);
 });
