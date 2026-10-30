@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#141d3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="El Espía">
+<title>Mirá Vos · El Espía</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23141d3a'/%3E%3Cpath d='M6 32Q32 6 58 32Q32 58 6 32Z' fill='none' stroke='%23f3eee2' stroke-width='5'/%3E%3Ccircle cx='32' cy='32' r='11' fill='%237fb0e3'/%3E%3Ccircle cx='32' cy='32' r='6.5' fill='%23141d3a'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,900&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #141d3a;
+    --navy-2: #1b2648;
+    --navy-3: #0f1630;
+    --line: #2c3961;
+    --cream: #f3eee2;
+    --muted: #9aa6c7;
+    --sky: #7fb0e3;
+    --orange: #e9a23b;
+    --green: #4cc38a;
+    --red: #e0473c;
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --serif: "Fraunces", Georgia, serif;
+    --sans: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; min-height: 100%; background: var(--navy); color: var(--cream); font: 16px/1.4 var(--sans); }
+  body {
+    background:
+      repeating-radial-gradient(circle at 50% 30%, transparent 0 46px, #ffffff0a 46px 47px),
+      var(--navy);
+    min-height: 100vh; min-height: 100dvh;
+  }
+  header {
+    position: sticky; top: 0; z-index: 2;
+    padding: calc(var(--sat) + 10px) 14px 10px; display: flex; align-items: center; gap: 10px;
+    background: linear-gradient(#141d3af5 70%, #141d3a00);
+  }
+  header svg { width: 40px; height: 26px; flex: none; }
+  .brand { display: flex; flex-direction: column; line-height: 1; }
+  .brand b { font: 900 20px/1 var(--serif); }
+  .brand small { margin-top: 4px; font-size: 10px; font-weight: 500; letter-spacing: .32em; color: var(--sky); text-transform: uppercase; }
+  header .spacer { flex: 1; }
+  #prueba-tag { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--orange); color: var(--orange); }
+  #menu { background: none; border: 1px solid var(--line); color: var(--cream); border-radius: 10px; width: 40px; height: 36px; font-size: 20px; line-height: 1; }
+
+  main { max-width: 560px; margin: 0 auto; padding: 4px 16px calc(var(--sab) + 28px); }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 900; line-height: 1.08; margin: 0 0 12px; }
+  h1 { font-size: 2.1rem; } h2 { font-size: 1.7rem; } h3 { font-size: 1.15rem; }
+  h2 .quien { color: var(--orange); }
+  p { margin: 0 0 12px; }
+  a { color: var(--sky); }
+  .muted { color: var(--muted); }
+  .hint { font-size: .88rem; color: var(--muted); }
+  .eyebrow { font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: var(--sky); font-weight: 700; margin-bottom: 8px; }
+  .tarjeta { background: var(--navy-2); border: 1px solid var(--line); border-radius: 18px; padding: 18px; margin-bottom: 14px; }
+  .privada { min-height: 56vh; display: flex; flex-direction: column; justify-content: center; }
+  .decir { background: var(--cream); color: var(--navy); border-radius: 14px; padding: 12px 14px; font-weight: 700; }
+
+  button { font: 700 16px var(--sans); border-radius: 14px; border: 1px solid var(--line); background: var(--navy-2); color: var(--cream); padding: 14px 16px; min-height: 52px; cursor: pointer; }
+  button.primario { background: var(--cream); color: var(--navy); border-color: var(--cream); width: 100%; font-size: 18px; min-height: 60px; }
+  button.sec { background: transparent; }
+  button:disabled { opacity: .35; cursor: default; }
+  button:not(:disabled):active { transform: scale(.97); }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+  .fila { display: flex; gap: 10px; flex-wrap: wrap; } .fila > * { flex: 1; }
+  .pila { display: flex; flex-direction: column; gap: 10px; }
+  .nombres { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+  .nombres button { min-height: 60px; }
+
+  label { display: block; font-size: .85rem; color: var(--muted); margin: 12px 0 4px; }
+  label.check { display: flex; gap: 10px; align-items: center; color: var(--cream); font-size: .95rem; }
+  input, select { font: inherit; width: 100%; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--navy); color: var(--cream); }
+  input[type=checkbox] { width: 22px; height: 22px; flex: none; }
+  input[type=number] { padding: 8px; }
+  #lista-nombres { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  summary { font-weight: 700; cursor: pointer; }
+  .rango { display: flex; gap: 8px; align-items: center; } .rango input { width: 80px; }
+
+  .asientos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; font-size: .9rem; }
+  .asiento { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  .asiento.hecho { color: var(--muted); border-style: dashed; }
+  .asiento.ahora { background: var(--orange); border-color: var(--orange); color: var(--navy); font-weight: 700; }
+
+  .grande { font: 900 6.5rem/1 var(--serif); margin: 8px 0 18px; text-align: center; }
+  .grande.chico { font-size: 3.6rem; margin-bottom: 12px; }
+  .si { color: var(--green); } .no { color: var(--red); }
+  /* El resultado grande va sin color: verde o rojo se distinguen desde lejos */
+  .grande .si, .grande .no { color: var(--cream); }
+  .nada { color: var(--muted); }
+  .accion { border: 2px solid var(--orange); border-radius: 14px; padding: 12px 14px; margin: 0 0 14px; }
+  .accion h3 { color: var(--orange); margin-bottom: 6px; }
+
+  .pausa { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 6px 0 14px; }
+  .pausa i { display: block; height: 100%; width: 0; background: var(--sky); animation: llenar linear forwards; }
+  @keyframes llenar { to { width: 100%; } }
+
+  .visor { position: relative; border-radius: 16px; overflow: hidden; background: #000; margin-bottom: 12px; aspect-ratio: 4 / 3; }
+  .visor canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .visor .vacio { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 20px; text-align: center; }
+  .estado { display: flex; justify-content: space-between; color: var(--muted); font-size: .9rem; margin-bottom: 12px; }
+
+  .onda { width: 120px; height: 120px; margin: 30px auto; border-radius: 50%; border: 3px solid var(--cream); animation: onda 1.2s ease-out infinite; }
+  @keyframes onda { 0% { transform: scale(.3); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+
+  .reloj { font: 900 5.5rem/1 var(--serif); text-align: center; margin: 18px 0; font-variant-numeric: tabular-nums; }
+  .reloj.fin { color: var(--orange); }
+
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th, td { padding: 7px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  td.gris { color: var(--muted); }
+  .dijo { min-height: 32px; padding: 4px 10px; font-size: .85rem; border-radius: 999px; }
+  .mintio { color: var(--orange); font-weight: 700; }
+  .pie { text-align: center; font-size: .9rem; margin-top: 18px; }
+  #foto { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <svg viewBox="0 0 66 42" aria-hidden="true">
+    <path d="M3 21Q33 -5 63 21Q33 47 3 21Z" fill="none" stroke="#f3eee2" stroke-width="3.5" stroke-linejoin="round"/>
+    <circle cx="33" cy="21" r="11" fill="#7fb0e3"/>
+    <circle cx="33" cy="21" r="6.5" fill="#141d3a"/>
+  </svg>
+  <div class="brand"><b>El Espía</b><small>¡Colapsá!</small></div>
+  <span class="spacer"></span>
+  <span id="prueba-tag" hidden>prueba</span>
+  <button id="menu" aria-label="Abandonar partida" title="Abandonar partida" hidden>⋯</button>
+</header>
+<main id="app"></main>
+<video id="video" playsinline muted autoplay hidden></video>
+<input type="file" id="foto" accept="image/*" capture="environment">
+
+<script src="lector.js"></script>
+<script src="espia_motor.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  const CLAVE = 'colapsa.espia.partida.v1';    // partida en curso
+  const CLAVE_AJ = 'colapsa.espia.ajustes.v1'; // nombres y reglas de la última vez
+  const PAUSA_RES = 2;      // s antes de poder seguir desde el resultado
+  const MIDIENDO_MS = 1200; // animación igual para todos al leer la carta
+  const RACHA = 3;          // cuadros seguidos con el mismo ID leído seguro
+  const NS = Object.keys(Motor.CONFIG_BASE.tabla).map(Number);
+  // Pantallas con información privada: si se apaga la pantalla o se cierra
+  // la app, se vuelve a la de "pasale el celu".
+  const SENSIBLES = ['ver', 'confirmar', 'escaneo', 'midiendo', 'otraCarta', 'noLeyo', 'resultado', 'extra', 'resumen'];
+
+  const $ = id => document.getElementById(id);
+  const app = $('app');
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const SN = r => (r === 'si' ? '<span class="si">SÍ</span>' : '<span class="no">NO</span>');
+  const ORD = k => `${k + 1}ª`;
+
+  let G = null;
+  let lectura = null;     // ID del último dorso leído (no se guarda)
+  const nom = p => esc(G.nombres[p]);
+
+  // ---------- Guardado ----------
+  function guardar() { try { localStorage.setItem(CLAVE, JSON.stringify(G)); } catch (e) { console.error(e); } }
+  function cargar() { try { return JSON.parse(localStorage.getItem(CLAVE)); } catch { return null; } }
+  function ajustes() { try { return JSON.parse(localStorage.getItem(CLAVE_AJ)) || {}; } catch { return {}; } }
+  function guardarAjustes(a) { try { localStorage.setItem(CLAVE_AJ, JSON.stringify(a)); } catch {} }
+  function borrar() { localStorage.removeItem(CLAVE); G = null; }
+
+  // ---------- Pintado ----------
+  let timers = [];
+  function pintar(html) {
+    timers.forEach(t => { clearTimeout(t); clearInterval(t); });
+    timers = [];
+    app.innerHTML = html;
+    window.scrollTo(0, 0);
+    $('menu').hidden = !G;
+    $('prueba-tag').hidden = !(G && G.prueba);
+    // Pausa mínima: los botones .espera se habilitan cuando se llena la barra
+    const pausa = app.querySelector('.pausa');
+    if (pausa) {
+      const seg = +pausa.dataset.seg;
+      const esperan = app.querySelectorAll('.espera');
+      esperan.forEach(b => { b.disabled = true; });
+      pausa.querySelector('i').style.animationDuration = `${seg}s`;
+      timers.push(setTimeout(() => esperan.forEach(b => { if (!b.dataset.off) b.disabled = false; }), seg * 1000));
+    }
+  }
+  const barra = seg => `<div class="pausa" data-seg="${seg}"><i></i></div>`;
+
+  const A = {};   // acciones de los botones (data-a, data-v)
+  app.addEventListener('click', e => {
+    const b = e.target.closest('[data-a]');
+    if (b && !b.disabled && A[b.dataset.a]) A[b.dataset.a](b.dataset.v);
+  });
+
+  function ir(cambios) {
+    Object.assign(G.ui, cambios);
+    guardar();
+    render();
+  }
+
+  function render() {
+    if (!(G && G.ui.fase === 'turno' && G.ui.paso === 'escaneo')) pararEscaneo();
+    if (!G) return inicio();
+    ({ roles: pRoles, turno: pTurno, finRonda: pFinRonda, debate: pDebate, voto: pVoto, fin: pFin })[G.ui.fase]();
+  }
+
+  // Si se apaga la pantalla o se cambia de app, se tapa lo privado
+  function tapar() {
+    if (!G || !SENSIBLES.includes(G.ui.paso)) return;
+    if (G.ui.paso === 'midiendo') return;   // termina sola y vuelve a guardar
+    delete G.ui.sel;
+    ir({ paso: 'pasar' });
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) tapar();
+    else pedirPantalla();
+  });
+
+  // Que no se apague la pantalla durante la partida
+  let wake = null;
+  async function pedirPantalla() {
+    if (!G || wake || !('wakeLock' in navigator)) return;
+    try {
+      wake = await navigator.wakeLock.request('screen');
+      wake.addEventListener('release', () => { wake = null; });
+    } catch {}
+  }
+
+  $('menu').addEventListener('click', () => {
+    if (!G) return;
+    if (confirm('¿Abandonar la partida? Se pierde todo lo jugado.')) { borrar(); render(); }
+  });
+
+  // ---------- Inicio y ajustes ----------
+  function inicio() {
+    const guardada = cargar();
+    if (guardada && guardada.v === 1 && guardada.ui) {
+      const R = Motor.rondaActual(guardada);
+      const donde = guardada.ui.fase === 'fin' ? 'terminada, con los resultados'
+        : guardada.ui.fase === 'roles' ? 'repartiendo roles'
+        : R ? `en la ronda ${guardada.rondas.length} de ${guardada.rondasTotal}` : '';
+      pintar(`<section class="tarjeta">
+        <h2>Hay una partida guardada</h2>
+        <p>${guardada.n} jugadores: ${guardada.nombres.map(esc).join(', ')}. Quedó ${donde}.</p>
+        <div class="pila"><button class="primario" data-a="retomar">Retomar partida</button>
+        <button class="sec" data-a="descartar">Empezar otra</button></div></section>`);
+      return;
+    }
+    configurar();
+  }
+  A.retomar = () => {
+    G = cargar();
+    if (SENSIBLES.includes(G.ui.paso)) { G.ui.paso = 'pasar'; delete G.ui.sel; }
+    pedirPantalla();
+    render();
+  };
+  A.descartar = () => {
+    if (!confirm('Se borra la partida guardada. ¿Seguro?')) return;
+    borrar();
+    configurar();
+  };
+
+  function configurar() {
+    const aj = ajustes(), cfg = aj.config || Motor.CONFIG_BASE;
+    const n = NS.includes(aj.n) ? aj.n : NS[0];
+    const pct = v => Math.round(v * 100);
+    pintar(`
+      <section class="tarjeta">
+        <h1>El Espía</h1>
+        <p class="muted">Para jugar en la mesa con las cartas de verdad y un solo celular, que se va pasando. La app reparte los roles en secreto y lleva el estado del qubit.</p>
+        <label for="n">Jugadores</label>
+        <select id="n">${NS.map(x => `<option ${x === n ? 'selected' : ''}>${x}</option>`).join('')}</select>
+        <p class="hint" id="desc" style="margin-top:6px"></p>
+        <label>Nombres, en el orden en que están sentados</label>
+        <div id="lista-nombres"></div>
+        <label class="check" style="margin-top:16px"><input type="checkbox" id="prueba" ${aj.prueba ? 'checked' : ''}> Modo prueba: sin cámara, con «Simular escaneo»</label>
+      </section>
+      <details class="tarjeta">
+        <summary>Reglas configurables</summary>
+        <div class="scroll" style="margin-top:12px"><table>
+          <tr><th>Jugadores</th><th>Laboratorios</th><th>Distintos</th><th>Rondas</th></tr>
+          ${NS.map(j => `<tr><td>${j}</td><td>${j - 1} + Obs.</td>
+            <td><input type="number" id="d${j}" min="1" max="3" value="${cfg.tabla[j].distintos}" aria-label="Distintos con ${j}"></td>
+            <td><input type="number" id="r${j}" min="1" max="8" value="${cfg.tabla[j].rondas}" aria-label="Rondas con ${j}"></td></tr>`).join('')}
+        </table></div>
+        <label>Acción si la medición colapsó (%, se sortea por ronda)</label>
+        <div class="rango"><input type="number" id="pc0" min="0" max="100" value="${pct(cfg.pColapso[0])}"> a <input type="number" id="pc1" min="0" max="100" value="${pct(cfg.pColapso[1])}"></div>
+        <label>Acción si no colapsó (%)</label>
+        <div class="rango"><input type="number" id="ps0" min="0" max="100" value="${pct(cfg.pSinColapso[0])}"> a <input type="number" id="ps1" min="0" max="100" value="${pct(cfg.pSinColapso[1])}"></div>
+        <label for="pa">Agujero de gusano frente a Par EPR (% de Agujero)</label>
+        <input type="number" id="pa" min="0" max="100" value="${pct(cfg.pAgujero)}">
+        <label for="deb">Debate (segundos)</label>
+        <input type="number" id="deb" min="10" value="${cfg.debateSeg}">
+        <label for="esc">Tiempo para escanear en cada turno (segundos)</label>
+        <input type="number" id="esc" min="5" value="${cfg.escaneoSeg}">
+        <label for="pau">Pausa mínima de las pantallas de turno (segundos)</label>
+        <input type="number" id="pau" min="0" value="${cfg.pausaSeg}">
+        <p style="margin-top:14px"><button class="sec" data-a="restablecer">Volver a los valores de fábrica</button></p>
+      </details>
+      <button class="primario" data-a="empezar">Repartir roles</button>
+      <p class="pie"><a href="index.html">Abrir el visor</a></p>`);
+    const nombresIniciales = aj.nombres || [];
+    const pintarNombres = () => {
+      const k = +$('n').value;
+      const actuales = [...document.querySelectorAll('#lista-nombres input')].map(i => i.value);
+      const vals = [...Array(k)].map((_, i) => actuales[i] ?? nombresIniciales[i] ?? '');
+      $('lista-nombres').innerHTML = vals.map((v, i) =>
+        `<input id="nom${i}" maxlength="14" placeholder="Jugador ${i + 1}" value="${esc(v)}" aria-label="Jugador ${i + 1}">`).join('');
+      const d = +($(`d${k}`) || {}).value || cfg.tabla[k].distintos, r = +($(`r${k}`) || {}).value || cfg.tabla[k].rondas;
+      $('desc').textContent = `${k - 1} laboratorios (${d === 1 ? '1 distinto' : d + ' distintos'}) y 1 Observador escondido. ${r} rondas.`;
+    };
+    $('n').addEventListener('change', pintarNombres);
+    NS.forEach(j => ['d', 'r'].forEach(c => $(c + j).addEventListener('input', pintarNombres)));
+    pintarNombres();
+  }
+
+  function leerConfig() {
+    const tabla = {};
+    for (const j of NS) tabla[j] = { labs: j - 1, distintos: Math.round(+$('d' + j).value), rondas: Math.round(+$('r' + j).value) };
+    const p = id => +$(id).value / 100;
+    const cfg = {
+      tabla, pColapso: [p('pc0'), p('pc1')], pSinColapso: [p('ps0'), p('ps1')], pAgujero: p('pa'),
+      debateSeg: Math.round(+$('deb').value), escaneoSeg: Math.round(+$('esc').value), pausaSeg: +$('pau').value,
+    };
+    const prob = v => v >= 0 && v <= 1;
+    if (![...cfg.pColapso, ...cfg.pSinColapso, cfg.pAgujero].every(prob)) throw new Error('Los porcentajes van de 0 a 100.');
+    if (cfg.pColapso[0] > cfg.pColapso[1] || cfg.pSinColapso[0] > cfg.pSinColapso[1]) throw new Error('En cada rango, el primero no puede ser mayor que el segundo.');
+    if (!(cfg.debateSeg >= 10 && cfg.escaneoSeg >= 5 && cfg.pausaSeg >= 0)) throw new Error('Revisá los tiempos.');
+    for (const j of NS) if (!(tabla[j].rondas >= 1)) throw new Error(`Con ${j} jugadores tiene que haber al menos 1 ronda.`);
+    return cfg;
+  }
+
+  A.restablecer = () => {
+    const aj = ajustes();
+    delete aj.config;
+    guardarAjustes(aj);
+    configurar();
+  };
+
+  A.empezar = () => {
+    const n = +$('n').value;
+    const nombres = [...Array(n)].map((_, i) => $('nom' + i).value.trim() || `Jugador ${i + 1}`);
+    // Nombres repetidos confunden en el "pasale el celu a…"
+    const vistos = {};
+    nombres.forEach((x, i) => { const c = x.toLowerCase(); vistos[c] = (vistos[c] || 0) + 1; if (vistos[c] > 1) nombres[i] = `${x} ${vistos[c]}`; });
+    let config;
+    try {
+      config = leerConfig();
+      G = Motor.crearPartida(nombres, config);
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
+    G.prueba = $('prueba').checked;
+    G.ui = { fase: 'roles', paso: 'pasar', i: 0 };
+    guardarAjustes({ n, nombres, prueba: G.prueba, config });
+    pedirPantalla();
+    guardar();
+    render();
+  };
+
+  // ---------- Reparto de roles ----------
+  function pasar(titulo, p, extra = '') {
+    return `<section class="privada">
+      <p class="eyebrow">${titulo}</p>
+      ${extra}
+      <h2>Pasale el celu a <span class="quien">${nom(p)}</span></h2>
+      <p class="muted">Que nadie más mire la pantalla.</p>
+      <button class="primario" data-a="soy">Soy ${nom(p)}</button></section>`;
+  }
+
+  function pRoles() {
+    const { paso, i } = G.ui;
+    if (paso === 'pasar') return pintar(pasar(`Reparto de roles · ${i + 1} de ${G.n}`, i));
+    const rol = G.roles[i], k = G.roles.filter(r => r.distinto).length;
+    const hay = k === 1 ? 'Hay <b>1 laboratorio distinto</b>, que mide en el otro eje' : `Hay <b>${k} laboratorios distintos</b>, que miden en el otro eje`;
+    let t;
+    if (rol.tipo === 'obs') {
+      t = `<p class="eyebrow">Tu rol</p><h2>Sos el Observador</h2>
+        <p>Jugás con la mayoría: ganan si el más votado es un distinto. ${hay}.</p>
+        <p>No tenés escáner, pero en tu turno la app te muestra lo que midió de verdad alguien que ya pasó. Si te toca arrancar una ronda, tu detector viene calibrado con la mayoría y ves lo que marca; desde la segunda ronda, además, ves una medición de la ronda anterior.</p>
+        <p><b>Escaneá igual que todos e inventá qué dice tu escáner, como si hubieras medido.</b> Nadie tiene que darse cuenta de que sos el Observador.</p>`;
+    } else {
+      t = `<p class="eyebrow">Tu rol</p><h2>Sos un laboratorio</h2>
+        <p>Tu detector mide en un eje, Z o X, pero no sabés cuál. ${hay}. Tampoco sabés si sos uno de ellos.</p>
+        <p class="muted">Ganan la mayoría y el Observador si el más votado es un distinto. Si no, ganan los distintos.</p>`;
+      if (rol.calibrado) {
+        t += `<div class="accion"><h3>Tu detector vino calibrado</h3>
+          <p style="margin:0">Sabés que <b>${rol.distinto ? 'sos distinto' : 'sos de la mayoría'}</b>. Tu eje no lo sabés.</p></div>`;
+      }
+    }
+    pintar(`<section class="tarjeta privada">${t}${barra(G.config.pausaSeg)}
+      <button class="primario espera" data-a="rolVisto">Entendido · ocultar</button></section>`);
+  }
+
+  A.soy = () => {
+    const u = G.ui;
+    if (u.fase === 'turno') {
+      const R = Motor.rondaActual(G);
+      return ir({ paso: u.k < R.turnos.length ? 'resultado' : 'escaneo' });
+    }
+    ir({ paso: 'ver' });
+  };
+
+  A.rolVisto = () => {
+    if (G.ui.i + 1 < G.n) return ir({ paso: 'pasar', i: G.ui.i + 1 });
+    empezarRonda();
+  };
+
+  function empezarRonda() {
+    Motor.empezarRonda(G);
+    ir({ fase: 'turno', paso: 'pasar', k: 0 });
+  }
+
+  // ---------- Turnos ----------
+  function asientos(R, k) {
+    return `<div class="asientos">${R.orden.map((p, j) =>
+      `<span class="asiento ${j === k ? 'ahora' : j < k ? 'hecho' : ''}">${nom(p)}</span>`).join('<span aria-hidden="true">›</span>')}</div>`;
+  }
+
+  function pTurno() {
+    const R = Motor.rondaActual(G), k = G.ui.k, p = R.orden[k], t = R.turnos[k];
+    const ronda = `Ronda ${G.rondas.length} de ${G.rondasTotal}`;
+    switch (G.ui.paso) {
+      case 'pasar': {
+        if (k === 0) {
+          return pintar(`<p class="eyebrow">${ronda}</p>${asientos(R, k)}
+            <section class="privada">
+            <h2>Arranca <span class="quien">${nom(p)}</span></h2>
+            <p>Pongan en juego <b>una carta nueva</b>, con el dorso para arriba. Es la única de esta ronda: da toda la vuelta y vuelve a ${nom(p)}, que la mide de nuevo.</p>
+            <p class="muted">Que nadie más mire la pantalla.</p>
+            <button class="primario" data-a="soy">Soy ${nom(p)}</button></section>`);
+        }
+        const prev = R.orden[k - 1];
+        return pintar(`<p class="eyebrow">${ronda} · ${ORD(k)} medición</p>${asientos(R, k)}
+          ${pasar('', p, `<p class="decir">${nom(prev)}: decí en voz alta SÍ o NO. Después pasá la carta y el celu.</p>`)}`);
+      }
+      case 'escaneo': return pEscaneo();
+      case 'midiendo':
+        return pintar(`<section class="privada"><p class="eyebrow">Midiendo</p><div class="onda"></div>
+          <p class="muted" style="text-align:center">El qubit colapsa…</p></section>`);
+      case 'otraCarta':
+        return pintar(`<section class="tarjeta privada"><h2>¿Es la misma carta?</h2>
+          <p>El dorso que escaneaste no coincide con la carta que está en juego en esta ronda.</p>
+          <div class="pila"><button class="primario" data-a="reescanear">Escanear de nuevo</button>
+          <button class="sec" data-a="forzar">Es la misma, seguir</button></div></section>`);
+      case 'noLeyo':
+        return pintar(`<section class="tarjeta privada"><h2>No se leyó el dorso</h2>
+          <p>Buscá más luz, encuadrá la carta en el recuadro y mantené el celu quieto.</p>
+          <button class="primario" data-a="reescanear">Reintentar</button></section>`);
+      case 'resultado': {
+        let html;
+        if (!t.obs) {
+          html = `<p class="eyebrow">Tu detector marca</p><div class="grande">${SN(t.res)}</div>`;
+        } else {
+          html = vistaObservador(t, '');
+        }
+        return pintar(`<section class="tarjeta privada">${html}${barra(PAUSA_RES)}
+          <button class="primario espera" data-a="seguir">Seguir</button></section>`);
+      }
+      case 'extra': return pExtra(R, t);
+      case 'resumen': return pResumen(R, t);
+    }
+  }
+
+  // Lo que ve el Observador. Si arranca la ronda: lo que mediría la mayoría
+  // (en grande) y, salvo en la ronda 1, una medición de la ronda anterior. Si
+  // no: una medición verdadera de alguien que ya pasó (en grande).
+  function vistaObservador(t, tam) {
+    const ri = G.rondas.length - 1;
+    const otro = ve => `<b>${nom(ve.p)}</b>, en la ${ORD(ve.k)} medición${ve.ronda < ri ? ' de la ronda anterior' : ''}, midió de verdad`;
+    if (t.propio !== null && t.propio !== undefined) {
+      return `<p class="eyebrow">Sos el Observador</p>
+        <p>No tenés escáner, pero arrancás la ronda y tu detector viene calibrado con la mayoría. Marca</p>
+        <div class="grande ${tam}">${SN(t.propio)}</div>
+        ${t.ve ? `<p>Además ves que ${otro(t.ve)} ${SN(t.ve.res)}.</p>` : ''}`;
+    }
+    if (t.ve) {
+      return `<p class="eyebrow">Sos el Observador</p><p>No tenés escáner, pero ves que ${otro(t.ve)}</p>
+        <div class="grande ${tam}">${SN(t.ve.res)}</div>`;
+    }
+    return `<p class="eyebrow">Sos el Observador</p><p>No tenés escáner y en esta medición no ves nada.</p>
+      <div class="grande ${tam} nada">···</div>`;
+  }
+
+  // Segunda pantalla, la tienen todos: con acción, sin acción y el
+  // Observador. Siempre una pausa y tocar un nombre, para que el tiempo y los
+  // toques no delaten nada.
+  function pExtra(R, t) {
+    const a = t.accion;
+    if (a && a.tipo === 'agujero' && a.objetivo !== null) return ir({ paso: 'resumen' });
+    const otros = [...Array(G.n).keys()].filter(q => q !== t.p);
+    let texto, validos = otros;
+    if (t.obs) {
+      texto = `<p class="eyebrow">Tu escáner no funciona</p><p>Tocá cualquier nombre para seguir.</p>`;
+    } else if (!a) {
+      texto = `<p class="eyebrow">Nada más en tu detector</p><p>Tocá cualquier nombre para seguir.</p>`;
+    } else if (a.tipo === 'epr') {
+      texto = `<p class="eyebrow">Algo pasó en tu detector…</p><p><b>Tenés una acción adicional.</b> Tocá cualquier nombre para verla.</p>`;
+    } else {
+      validos = Motor.opcionesAgujero(G);
+      texto = `<p class="eyebrow">Algo pasó en tu detector…</p>
+        <p><b>Tenés una acción adicional: Agujero de gusano.</b> Elegí a alguien que ya haya medido esta carta en la ronda y vas a ver qué midió de verdad.</p>`;
+    }
+    pintar(`<section class="tarjeta privada">${texto}${barra(G.config.pausaSeg)}
+      <div class="nombres">${otros.map(q => `<button class="espera" data-a="extra" data-v="${q}"
+        ${validos.includes(q) ? '' : 'data-off="1"'}>${nom(q)}</button>`).join('')}</div></section>`);
+  }
+
+  function pResumen(R, t) {
+    let html;
+    if (!t.obs) {
+      html = `<p class="eyebrow">Tu detector marcó</p><div class="grande chico">${SN(t.res)}</div>`;
+      const a = t.accion;
+      if (a && a.tipo === 'epr') {
+        html += `<div class="accion"><h3>Par EPR</h3><p style="margin:0">${nom(a.objetivo)}, que te pasó la carta, midió de verdad ${SN(a.res)}.</p></div>`;
+      } else if (a && a.tipo === 'agujero') {
+        html += `<div class="accion"><h3>Agujero de gusano</h3><p style="margin:0">${nom(a.objetivo)}, en la ${ORD(a.k)} medición, midió de verdad ${SN(a.res)}.</p></div>`;
+      }
+      html += `<p class="muted">Ahora decí en voz alta lo que quieras: SÍ o NO.</p>`;
+    } else {
+      html = vistaObservador(t, 'chico');
+      html += `<p class="muted">Inventá qué dice tu escáner y decilo en voz alta, como si hubieras medido.</p>`;
+    }
+    pintar(`<section class="tarjeta privada">${html}
+      <button class="primario" data-a="ocultar">Ocultar</button></section>`);
+  }
+
+  A.seguir = () => ir({ paso: 'extra' });
+  A.extra = v => {
+    const t = Motor.ultimoTurno(G);
+    if (t.accion && t.accion.tipo === 'agujero') Motor.usarAgujero(G, +v);
+    ir({ paso: 'resumen' });
+  };
+  A.ocultar = () => {
+    const R = Motor.rondaActual(G);
+    if (G.ui.k + 1 < R.orden.length) return ir({ paso: 'pasar', k: G.ui.k + 1 });
+    ir({ fase: 'finRonda', paso: 'pasar' });
+  };
+  A.reescanear = () => ir({ paso: 'escaneo' });
+  A.forzar = () => medir(lectura, true);
+
+  // ---------- Escaneo ----------
+  const video = $('video');
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  const Cam = { stream: null, raf: 0, activo: false, fin: 0, racha: 0, ultima: null };
+
+  function pEscaneo() {
+    const R = Motor.rondaActual(G);
+    const prueba = G.prueba ? `<div class="pila">
+        <button class="primario" data-a="simular">Simular escaneo</button>
+        ${R.carta !== null ? '<button class="sec" data-a="simularOtra">Simular otra carta</button>' : ''}</div>` : '';
+    pintar(`<section class="privada">
+      <p class="eyebrow">Tu turno</p>
+      <h2>Escaneá el dorso</h2>
+      <div class="visor"><canvas id="cv"></canvas><div class="vacio" id="vacio">${G.prueba ? 'Modo prueba: sin cámara' : 'Abriendo el detector…'}</div></div>
+      <div class="estado"><span id="estado">${G.prueba ? '' : 'Encuadrá la carta en el recuadro'}</span><span id="cuenta"></span></div>
+      ${prueba}
+      ${G.prueba ? '' : '<button class="sec" data-a="foto" style="width:100%">Sacar foto en lugar de video</button>'}
+    </section>`);
+    if (!G.prueba) escanear();
+  }
+
+  async function escanear() {
+    Cam.racha = 0; Cam.ultima = null;
+    const ok = await abrirCamara();
+    if (!(G && G.ui.paso === 'escaneo')) return pararEscaneo();
+    if (!ok) {
+      $('vacio').textContent = 'No se pudo abrir la cámara. Probá con «Sacar foto».';
+      return;
+    }
+    $('vacio').hidden = true;
+    Cam.activo = true;
+    Cam.fin = Date.now() + G.config.escaneoSeg * 1000;
+    Cam.raf = requestAnimationFrame(cuadro);
+  }
+
+  async function abrirCamara() {
+    if (Cam.stream) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+    try {
+      Cam.stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      video.srcObject = Cam.stream;
+      await video.play();
+      return true;
+    } catch (err) {
+      console.error(err);
+      return false;
+    }
+  }
+
+  function pararEscaneo() {
+    Cam.activo = false;
+    cancelAnimationFrame(Cam.raf);
+    if (Cam.stream) Cam.stream.getTracks().forEach(t => t.stop());
+    Cam.stream = null;
+    video.srcObject = null;
+  }
+
+  function cuadro() {
+    if (!Cam.activo) return;
+    const resta = Cam.fin - Date.now();
+    if (resta <= 0) { pararEscaneo(); return ir({ paso: 'noLeyo' }); }
+    $('cuenta').textContent = `${Math.ceil(resta / 1000)} s`;
+    if (video.readyState >= 2 && video.videoWidth) {
+      const { W, H } = Lector.workSize(video.videoWidth, video.videoHeight);
+      if (work.width !== W || work.height !== H) { work.width = W; work.height = H; }
+      wctx.drawImage(video, 0, 0, W, H);
+      const l = Lector.readCanvas(work);
+      mostrarCuadro();
+      if (procesar(l)) return;
+    }
+    Cam.raf = requestAnimationFrame(cuadro);
+  }
+
+  // La imagen con el recuadro guía. Nunca se muestra lo leído.
+  function mostrarCuadro() {
+    const cv = $('cv');
+    if (!cv) return;
+    if (cv.width !== work.width || cv.height !== work.height) { cv.width = work.width; cv.height = work.height; }
+    const c = cv.getContext('2d');
+    c.drawImage(work, 0, 0);
+    const g = Lector.guideRect(cv.width, cv.height);
+    c.strokeStyle = '#f3eee2'; c.lineWidth = 2; c.setLineDash([10, 7]);
+    c.strokeRect(g.x + 0.5, g.y + 0.5, g.s - 1, g.s - 1);
+  }
+
+  // Acepta cuando el mismo ID se lee seguro RACHA cuadros seguidos.
+  // Devuelve true si terminó.
+  function procesar(l) {
+    const seguro = l.level === 'sure';
+    $('estado').textContent = seguro ? 'Leyendo…' : 'Buscando el dorso…';
+    if (!seguro) { Cam.racha = 0; return false; }
+    Cam.racha = Cam.ultima === l.id ? Cam.racha + 1 : 1;
+    Cam.ultima = l.id;
+    if (Cam.racha < RACHA) return false;
+    pararEscaneo();
+    leido(l.id);
+    return true;
+  }
+
+  // Foto: una sola lectura, sin promedio
+  A.foto = () => $('foto').click();
+  $('foto').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file || !G || G.ui.paso !== 'escaneo') return;
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const { W, H } = Lector.workSize(img.naturalWidth, img.naturalHeight);
+      work.width = W; work.height = H;
+      wctx.drawImage(img, 0, 0, W, H);
+      const l = Lector.readCanvas(work);
+      if (l.level === 'sure') {
+        pararEscaneo();
+        leido(l.id);
+      } else {
+        $('estado').textContent = 'La foto no se leyó. Probá de nuevo con más luz.';
+      }
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  });
+
+  const idAlAzar = () => 1 + Math.floor(Math.random() * Lector.N_IDS);
+  A.simular = () => {
+    const R = Motor.rondaActual(G);
+    leido(R.carta !== null ? R.carta : idAlAzar());
+  };
+  A.simularOtra = () => {
+    const c = Motor.rondaActual(G).carta;
+    leido(c % Lector.N_IDS + 1);
+  };
+
+  // Misma animación y mismo tiempo para todos, después se mide
+  function leido(l) {
+    lectura = l;
+    ir({ paso: 'midiendo' });
+    timers.push(setTimeout(() => { if (G && G.ui.paso === 'midiendo') medir(l, false); }, MIDIENDO_MS));
+  }
+
+  function medir(l, forzar) {
+    const R = Motor.rondaActual(G);
+    if (G.ui.k < R.turnos.length) return ir({ paso: 'resultado' });   // ya medido
+    const r = Motor.medir(G, l, Math.random, forzar);
+    if (r.error) return ir({ paso: 'otraCarta' });
+    ir({ paso: 'resultado' });
+  }
+
+  // ---------- Fin de ronda y debate ----------
+  function pFinRonda() {
+    const R = Motor.rondaActual(G), ultimo = R.orden[R.orden.length - 1];
+    const quedan = G.rondas.length < G.rondasTotal;
+    pintar(`<section class="privada">
+      <p class="decir">${nom(ultimo)}: decí en voz alta SÍ o NO.</p>
+      <h2>Terminó la ronda ${G.rondas.length}</h2>
+      <p>Retiren la carta. Es un buen momento para anotar en el cuaderno lo que dijo cada uno.</p>
+      <button class="primario" data-a="${quedan ? 'otraRonda' : 'debate'}">${quedan ? `Empezar la ronda ${G.rondas.length + 1}` : 'Ir al debate'}</button>
+    </section>`);
+  }
+  A.otraRonda = () => empezarRonda();
+  A.debate = () => ir({ fase: 'debate', paso: 'pasar', fin: Date.now() + G.config.debateSeg * 1000, resta: null });
+
+  function pDebate() {
+    const u = G.ui;
+    pintar(`<section class="privada">
+      <p class="eyebrow">Debate</p>
+      <h2>¿Quién es ${G.roles.filter(r => r.distinto).length === 1 ? 'el distinto' : 'uno de los distintos'}?</h2>
+      <p class="muted">Discutan con lo que anotaron. Después se vota en secreto.</p>
+      <div class="reloj" id="reloj"></div>
+      <div class="fila" style="margin-bottom:10px">
+        <button class="sec" data-a="pausar">${u.resta !== null ? 'Seguir' : 'Pausar'}</button>
+        <button class="sec" data-a="mas">+30 s</button></div>
+      <button class="primario" data-a="votar">Ir a la votación</button></section>`);
+    let avisado = false;
+    const tic = () => {
+      const ms = u.resta !== null ? u.resta : Math.max(0, u.fin - Date.now());
+      const s = Math.ceil(ms / 1000), el = $('reloj');
+      if (!el) return;
+      el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      el.classList.toggle('fin', s === 0);
+      if (s === 0 && !avisado) { avisado = true; if (navigator.vibrate) navigator.vibrate([300, 150, 300]); }
+    };
+    tic();
+    timers.push(setInterval(tic, 250));
+  }
+  A.pausar = () => {
+    const u = G.ui;
+    if (u.resta !== null) ir({ fin: Date.now() + u.resta, resta: null });
+    else ir({ resta: Math.max(0, u.fin - Date.now()) });
+  };
+  A.mas = () => {
+    const u = G.ui;
+    if (u.resta !== null) ir({ resta: u.resta + 30000 });
+    else ir({ fin: Math.max(u.fin, Date.now()) + 30000 });
+  };
+  A.votar = () => ir({ fase: 'voto', paso: 'pasar', i: 0 });
+
+  // ---------- Votación ----------
+  function pVoto() {
+    const { paso, i } = G.ui;
+    if (paso === 'pasar') return pintar(pasar(`Votación secreta · ${i + 1} de ${G.n}`, i));
+    if (paso === 'ver') {
+      const otros = [...Array(G.n).keys()].filter(q => q !== i);
+      return pintar(`<section class="tarjeta privada"><p class="eyebrow">Tu voto</p>
+        <h2>¿Quién creés que es distinto?</h2>
+        <div class="nombres">${otros.map(q => `<button data-a="elegir" data-v="${q}">${nom(q)}</button>`).join('')}</div></section>`);
+    }
+    pintar(`<section class="tarjeta privada"><p class="eyebrow">Tu voto</p>
+      <h2>¿Votás a <span class="quien">${nom(G.ui.sel)}</span>?</h2>
+      <div class="pila"><button class="primario" data-a="confirmarVoto">Confirmar y ocultar</button>
+      <button class="sec" data-a="cambiarVoto">Cambiar</button></div></section>`);
+  }
+  A.elegir = v => ir({ paso: 'confirmar', sel: +v });
+  A.cambiarVoto = () => ir({ paso: 'ver' });
+  A.confirmarVoto = () => {
+    Motor.votar(G, G.ui.i, G.ui.sel);
+    delete G.ui.sel;
+    if (G.ui.i + 1 < G.n) return ir({ paso: 'pasar', i: G.ui.i + 1 });
+    ir({ fase: 'fin', paso: 'pasar' });
+  };
+
+  // ---------- Revelación ----------
+  function pFin() {
+    const res = Motor.resultado(G);
+    const distintos = G.roles.map((r, i) => (r.distinto ? i : -1)).filter(i => i >= 0);
+    const masVotados = res.top.map(nom).join(' y ');
+    const rolDe = r => (r.tipo === 'obs' ? 'Observador'
+      : (r.distinto ? 'Distinto' : 'Mayoría') + (r.calibrado ? ' · calibrado' : ''));
+    const filaRol = (r, i) => `<tr><td>${nom(i)}</td><td>${rolDe(r)}</td>
+      <td>${r.eje ? r.eje.toUpperCase() : '—'}</td><td>${res.cuenta[i]}</td><td class="gris">${nom(G.votos[i])}</td></tr>`;
+    const dijoBtn = (r, k, t) => {
+      const txt = t.dijo === null ? '¿?' : t.dijo === 'si' ? 'SÍ' : 'NO';
+      return `<button class="dijo sec" data-a="dijo" data-v="${r},${k}">${txt}</button>${t.dijo !== null && t.dijo !== t.res && !t.obs ? ' <span class="mintio">≠</span>' : ''}`;
+    };
+    const rondas = G.rondas.map((R, r) => `
+      <section class="tarjeta"><h3>Ronda ${r + 1}</h3>
+      <p class="hint">Se jugó con la carta ${R.carta}.</p>
+      <div class="scroll"><table>
+        <tr><th>#</th><th>Quién</th><th>Eje</th><th>Midió</th><th>Detalle</th><th>Dijo</th></tr>
+        ${R.turnos.map((t, k) => {
+          const det = [];
+          if (t.obs) {
+            if (t.antes) det.push('no mide (el qubit pasa igual)');
+            else det.push('arranca: mide como la mayoría (al azar)');
+            if (t.ve) det.push(`vio a ${nom(t.ve.p)} (${ORD(t.ve.k)}${t.ve.ronda < r ? ', ronda ant.' : ''}): ${SN(t.ve.res)}`);
+          } else {
+            det.push(t.antes ? (t.colapso ? 'colapsó' : 'sin colapso') : 'primera (al azar)');
+            if (t.accion && t.accion.objetivo !== null) det.push(`${t.accion.tipo === 'epr' ? 'Par EPR' : 'Agujero'} → ${nom(t.accion.objetivo)}: ${SN(t.accion.res)}`);
+            else if (t.accion) det.push('Agujero sin usar');
+          }
+          return `<tr><td>${k + 1}</td><td>${nom(t.p)}</td><td>${t.obs ? '—' : t.eje.toUpperCase()}</td>
+            <td class="${t.obs ? 'gris' : ''}">${SN(t.res)}</td><td class="hint">${det.join('<br>')}</td><td>${dijoBtn(r, k, t)}</td></tr>`;
+        }).join('')}
+      </table></div></section>`).join('');
+
+    pintar(`
+      <section class="tarjeta">
+        <p class="eyebrow">Resultado</p>
+        <h1>${res.gana === 'mayoria' ? '¡Ganan la mayoría y el Observador!' : '¡Ganan los distintos!'}</h1>
+        <p>${res.empate ? `Hubo empate entre ${masVotados}.` : `El más votado fue ${masVotados}.`}
+          ${distintos.length === 1 ? 'El distinto era' : 'Los distintos eran'} <b>${distintos.map(nom).join(' y ')}</b>.
+          El Observador era <b>${nom(G.roles.findIndex(r => r.tipo === 'obs'))}</b>.
+          La mayoría medía en el eje ${G.ejeMayoria.toUpperCase()}.</p>
+        <div class="scroll"><table>
+          <tr><th>Jugador</th><th>Rol</th><th>Eje</th><th>Votos</th><th>Votó a</th></tr>
+          ${G.roles.map(filaRol).join('')}
+        </table></div>
+      </section>
+      ${rondas}
+      <p class="hint">«Dijo» es opcional: tocá para cargar lo que dijo cada uno en voz alta (¿? → SÍ → NO). El ≠ marca dónde no coincide con lo que midió.</p>
+      <div class="pila"><button class="primario" data-a="otraPartida">Otra partida</button></div>`);
+  }
+  A.dijo = v => {
+    const [r, k] = v.split(',').map(Number), t = G.rondas[r].turnos[k];
+    const sig = { null: 'si', si: 'no', no: null }[String(t.dijo)];
+    Motor.anotarDicho(G, r, k, sig);
+    guardar();
+    const y = window.scrollY;
+    pFin();
+    window.scrollTo(0, y);
+  };
+  A.otraPartida = () => { borrar(); render(); };
+
+  render();
+})();
+</script>
+</body>
+</html>

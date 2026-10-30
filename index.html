@@ -210,34 +210,15 @@
 
 <video id="video" playsinline muted autoplay style="display:none"></video>
 
+<script src="lector.js"></script>
 <script>
 (() => {
   'use strict';
 
-  const MAX_SIDE = 720;
-  const GUIDE = 0.72;       // lado del recuadro guía, fracción del lado menor del cuadro
-  const CARD_MM = 40;       // el recuadro guía es la carta cortada
-
-  // Código espectral: igual que tools/codigo_espectral.py. Cada respuesta es
-  // un acorde de K ondas (ciclos/mm, en el marco de la carta) sumado al dorso
-  // en el eje azul−amarillo. Se lee por la energía en esas frecuencias, así
-  // que no importa dónde ni cómo esté girada la carta.
-  const P = 256;            // lado al que se lleva la carta para leer
-  const BIN = CARD_MM;      // bins de FFT por ciclo/mm
-  const BAND = [0.5, 0.8];
-  const K = 3;
-  const CODES = {
-    z_si: [[0.5613, 0.0990], [0.2847, 0.7047], [-0.7210, 0.1665]],
-    z_no: [[0.1030, 0.7328], [0.6390, 0.2326], [0.7238, 0.1539]],
-    x_si: [[-0.2134, 0.6981], [-0.5501, 0.3997], [-0.6954, 0.2531]],
-    x_no: [[-0.3009, 0.7088], [0.7034, 0.3132], [-0.5843, 0.0821]],
-  };
-  // z = diferencia SÍ−NO en unidades de ruido. En simulación: con código z ≥ 11
-  // aun a 3 niveles; sin código z ≤ 4. Revisar con la hoja de prueba impresa.
-  const Z_SURE = 8, Z_MAYBE = 5;
-  const ROTS = [], SCALES = [];
-  for (let a = 0; a < 180; a += 1.5) ROTS.push(a * Math.PI / 180);
-  for (let s = 0.88; s < 1.121; s += 0.03) SCALES.push(s);
+  // La lectura del ID del dorso está en lector.js (compartida con El Espía).
+  // Cada ID tiene sus respuestas en el eje Z y en el eje X.
+  const { CARD_MM, P, guideRect } = Lector;
+  const SOSTENER_MS = 600;   // en vivo, cuánto se sigue mostrando la última lectura segura
 
   const QUIPS_COLLAPSE = [
     'Medido. Ahora la respuesta no se mueve.',
@@ -269,7 +250,7 @@
     source: 'demo',     // 'demo' | 'camera' | 'photo'
     frozen: false,
     stream: null,
-    debug: false,       // carta · canal azul−amarillo · espectro
+    debug: false,       // el recorte leído, con el anillo y los puntitos encontrados
   };
 
   let raw = null;       // ImageData del frame original
@@ -316,183 +297,32 @@
   }
 
   function setSize(w, h) {
-    const k = Math.min(1, MAX_SIDE / Math.max(w, h));
-    const W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
+    const { W, H } = Lector.workSize(w, h);
     if (work.width !== W || work.height !== H) {
       work.width = W; work.height = H;
     }
   }
 
-  function guideRect(W, H) {
-    const s = Math.round(Math.min(W, H) * GUIDE);
-    return { x: (W - s) >> 1, y: (H - s) >> 1, s };
-  }
-
-  // ---------- Utilidades numéricas ----------
-  // Promedio móvil en una dirección, replicando el borde
-  function boxPass(src, dst, n, r, horiz) {
-    const step = horiz ? 1 : n, lstep = horiz ? n : 1, inv = 1 / (2 * r + 1), last = n - 1;
-    for (let l = 0; l < n; l++) {
-      const base = l * lstep;
-      let acc = src[base] * (r + 1);
-      for (let i = 1; i <= r; i++) acc += src[base + Math.min(i, last) * step];
-      for (let i = 0; i < n; i++) {
-        dst[base + i * step] = acc * inv;
-        acc += src[base + Math.min(i + r + 1, last) * step] - src[base + Math.max(i - r, 0) * step];
-      }
-    }
-  }
-
-  // Tres pasadas de caja ≈ gaussiana de desvío sigma, sobre un cuadrado n × n
-  function blur(a, tmp, n, sigma) {
-    const r = Math.max(1, Math.round((Math.sqrt(4 * sigma * sigma + 1) - 1) / 2));
-    for (let k = 0; k < 3; k++) {
-      boxPass(a, tmp, n, r, true);
-      boxPass(tmp, a, n, r, false);
-    }
-  }
-
-  // FFT radix 2 de largo P, en el lugar
-  const REV = new Uint16Array(P), COS = new Float64Array(P / 2), SIN = new Float64Array(P / 2);
-  for (let i = 0, bits = Math.log2(P); i < P; i++) {
-    let r = 0;
-    for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b);
-    REV[i] = r;
-  }
-  for (let k = 0; k < P / 2; k++) { COS[k] = Math.cos(2 * Math.PI * k / P); SIN[k] = Math.sin(2 * Math.PI * k / P); }
-
-  function fft(re, im) {
-    for (let i = 0; i < P; i++) {
-      const j = REV[i];
-      if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
-    }
-    for (let size = 2; size <= P; size *= 2) {
-      const half = size / 2, step = P / size;
-      for (let i = 0; i < P; i += size) {
-        for (let j = 0; j < half; j++) {
-          const a = i + j, b = a + half, c = COS[j * step], s = SIN[j * step];
-          const tr = re[b] * c + im[b] * s, ti = im[b] * c - re[b] * s;
-          re[b] = re[a] - tr; im[b] = im[a] - ti;
-          re[a] += tr; im[a] += ti;
-        }
-      }
-    }
-  }
-
-  // Espectro de potencia 2D de a (P × P real)
-  const rowRe = new Float64Array(P), rowIm = new Float64Array(P);
-  function power2d(a, outRe, outIm, E) {
-    for (let y = 0; y < P; y++) {
-      for (let x = 0; x < P; x++) { rowRe[x] = a[y * P + x]; rowIm[x] = 0; }
-      fft(rowRe, rowIm);
-      for (let x = 0; x < P; x++) { outRe[y * P + x] = rowRe[x]; outIm[y * P + x] = rowIm[x]; }
-    }
-    for (let x = 0; x < P; x++) {
-      for (let y = 0; y < P; y++) { rowRe[y] = outRe[y * P + x]; rowIm[y] = outIm[y * P + x]; }
-      fft(rowRe, rowIm);
-      for (let y = 0; y < P; y++) E[y * P + x] = rowRe[y] * rowRe[y] + rowIm[y] * rowIm[y];
-    }
-  }
-
   // ---------- Lectura de la carta ----------
-  const n2 = P * P, f32 = () => new Float32Array(n2);
-  const B = { C: f32(), Y: f32(), L: f32(), M: f32(), W: f32(), tmp: f32(), re: new Float64Array(n2),
-              im: new Float64Array(n2), E: new Float64Array(n2), Emax: new Float64Array(n2) };
-  const HANN = Float32Array.from({ length: P }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (P - 1)));
-  const RING = [];
-  for (let y = 0; y < P; y++) {
-    for (let x = 0; x < P; x++) {
-      const fx = (x < P / 2 ? x : x - P) / BIN, fy = (y < P / 2 ? y : y - P) / BIN, r = Math.hypot(fx, fy);
-      if (r > BAND[0] && r < BAND[1]) RING.push(y * P + x);
-    }
-  }
+  let ultima = null;     // última lectura segura en vivo: { res, t }
 
-  // Canal azul−amarillo sin fondo, sin los trazos del dibujo y con ventana.
-  // Los trazos se detectan por luminancia: el código está compensado para no
-  // cambiarla, así que el umbral puede ser bajo. El fondo se estima solo con
-  // lo que queda, para que los trazos no dejen halo. Resultado en B.C.
-  function prepare(px) {
-    const { C, Y, L, M, W, tmp } = B, mm = P / CARD_MM;
-    for (let p = 0, i = 0; p < n2; p++, i += 4) {
-      C[p] = px[i + 2] - (px[i] + px[i + 1]) / 2;
-      Y[p] = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
-    }
-    L.set(Y); blur(L, tmp, P, 0.5 * mm);
-    for (let p = 0; p < n2; p++) M[p] = Math.abs(Y[p] - L[p]) > 6 ? 1 : 0;
-    blur(M, tmp, P, 0.3 * mm);
-    for (let p = 0; p < n2; p++) { M[p] = M[p] < 0.05 ? 1 : 0; L[p] = C[p] * M[p]; W[p] = M[p]; }
-    blur(L, tmp, P, mm);
-    blur(W, tmp, P, mm);
-    for (let y = 0; y < P; y++) {
-      for (let x = 0; x < P; x++) {
-        const p = y * P + x;
-        C[p] = M[p] ? (C[p] - L[p] / Math.max(W[p], 1e-3)) * HANN[x] * HANN[y] : 0;
-      }
-    }
-  }
-
-  let smooth = null;     // promedio de los últimos cuadros en vivo
-
-  // Lee la carta del recuadro guía: energía de cada acorde en el giro y la
-  // escala que mejor encajan.
-  function readCard(g) {
-    pctx.drawImage(work, g.x, g.y, g.s, g.s, 0, 0, P, P);
-    const px = pctx.getImageData(0, 0, P, P).data;
-    prepare(px);
-    const { C, re, im, E, Emax } = B;
-    power2d(C, re, im, E);
-
-    let mu = 0;
-    for (const p of RING) mu += E[p];
-    mu = mu / RING.length || 1;
-    // Máximo en la vecindad 3 × 3: tolera medio bin de error en giro o escala
-    for (let y = 0; y < P; y++) {
-      for (let x = 0; x < P; x++) {
-        let m = 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          const yy = ((y + dy) & (P - 1)) * P;
-          for (let dx = -1; dx <= 1; dx++) m = Math.max(m, E[yy + ((x + dx) & (P - 1))]);
-        }
-        Emax[y * P + x] = m / mu;
-      }
-    }
-
-    const names = Object.keys(CODES);
-    let best = null;
-    for (const th of ROTS) {
-      const c = Math.cos(th), s = Math.sin(th);
-      for (const sc of SCALES) {
-        const e = {};
-        for (const k of names) {
-          let sum = 0;
-          for (const [fx, fy] of CODES[k]) {
-            const gx = Math.round(sc * BIN * (c * fx - s * fy)), gy = Math.round(sc * BIN * (s * fx + c * fy));
-            sum += Emax[(gy & (P - 1)) * P + (gx & (P - 1))];
-          }
-          e[k] = sum;
-        }
-        const total = Math.max(e.z_si, e.z_no) + Math.max(e.x_si, e.x_no);
-        if (!best || total > best.total) best = { total, e, th, sc };
-      }
-    }
-
-    // En vivo, se promedian los últimos cuadros para que no titile
-    let e = best.e;
+  // Lee el ID del dorso en el recuadro guía. En vivo, si un cuadro no se lee,
+  // se sostiene un momento la última lectura segura para que no titile.
+  function readCard() {
+    const res = Lector.readCanvas(work);
     if (state.source === 'camera' && !state.frozen) {
-      if (smooth) for (const k of names) e[k] = smooth[k] = 0.6 * smooth[k] + 0.4 * e[k];
-      else smooth = { ...e };
+      const ahora = performance.now();
+      if (res.level === 'sure') ultima = { res, t: ahora };
+      else if (ultima && ahora - ultima.t < SOSTENER_MS) return ultima.res;
     } else {
-      smooth = null;
+      ultima = null;
     }
-
-    const z = f => (e[f + '_si'] - e[f + '_no']) / Math.sqrt(2 * K);
-    return { z: z('z'), x: z('x'), th: best.th, sc: best.sc };
+    return res;
   }
 
   function verdict(res) {
-    const z = res[state.filter];
-    const level = Math.abs(z) >= Z_SURE ? 'sure' : Math.abs(z) >= Z_MAYBE ? 'maybe' : 'none';
-    return { answer: z > 0 ? 'si' : 'no', z: Math.abs(z), level };
+    const answer = res.level === 'none' ? null : Lector.respuestas(res.id)[state.filter];
+    return { answer, level: res.level, id: res.id };
   }
 
   function verdictText(v) {
@@ -561,43 +391,25 @@
     vctx.restore();
   }
 
-  // Debug: espectro centrado en escala logarítmica, con los acordes marcados
-  // en el giro y la escala encontrados (verde = SÍ, rojo = NO del eje activo)
-  function paintSpectrum(res) {
-    const img = pctx.createImageData(P, P), o = img.data, E = B.Emax;
-    for (let y = 0; y < P; y++) {
-      for (let x = 0; x < P; x++) {
-        const v = Math.min(255, Math.max(0, 40 * Math.log10(1 + E[((y + P / 2) & (P - 1)) * P + ((x + P / 2) & (P - 1))]) * 2));
-        const i = (y * P + x) * 4;
-        o[i] = o[i + 1] = o[i + 2] = v; o[i + 3] = 255;
-      }
-    }
-    pctx.putImageData(img, 0, 0);
-    const f = state.filter, c = Math.cos(res.th), s = Math.sin(res.th);
-    for (const k of Object.keys(CODES)) {
-      pctx.strokeStyle = k === `${f}_si` ? '#4cc38a' : k === `${f}_no` ? '#e0473c' : '#5b6790';
-      pctx.lineWidth = 1.5;
-      for (const [fx, fy] of CODES[k]) {
-        for (const sg of [1, -1]) {
-          const gx = sg * res.sc * BIN * (c * fx - s * fy), gy = sg * res.sc * BIN * (s * fx + c * fy);
-          pctx.beginPath();
-          pctx.arc(P / 2 + gx, P / 2 + gy, 4, 0, Math.PI * 2);
-          pctx.stroke();
-        }
-      }
-    }
-  }
-
-  function paintChannel() {
-    const img = pctx.createImageData(P, P), o = img.data, C = B.C;
-    let m = 0;
-    for (let p = 0; p < n2; p++) m = Math.max(m, Math.abs(C[p]));
-    const k = 127 / Math.max(1, m * 0.5);
-    for (let p = 0, i = 0; p < n2; p++, i += 4) {
-      const v = Math.max(0, Math.min(255, 128 + C[p] * k));
-      o[i] = o[i + 1] = v; o[i + 2] = 255 - v * 0.4; o[i + 3] = 255;
-    }
-    pctx.putImageData(img, 0, 0);
+  // Debug: el recorte que se lee, con el anillo encontrado y cada posición:
+  // verde = puntito, rojo = hueco
+  function paintRead(res) {
+    const g = res.rect;
+    pctx.drawImage(work, g.x, g.y, g.s, g.s, 0, 0, P, P);
+    pctx.save();
+    pctx.lineWidth = 1.5;
+    pctx.strokeStyle = '#f3eee2';
+    pctx.setLineDash([4, 4]);
+    pctx.beginPath(); pctx.arc(res.cx, res.cy, res.r, 0, Math.PI * 2); pctx.stroke();
+    pctx.setLineDash([]);
+    res.presentes.forEach((on, k) => {
+      const t = res.giro + k * 2 * Math.PI / Lector.N_PUNTOS;
+      pctx.strokeStyle = on ? '#4cc38a' : '#e0473c';
+      pctx.beginPath();
+      pctx.arc(res.cx + res.r * Math.cos(t), res.cy + res.r * Math.sin(t), 6, 0, Math.PI * 2);
+      pctx.stroke();
+    });
+    pctx.restore();
   }
 
   function loadStatic(img, w, h) {
@@ -612,26 +424,12 @@
     const W = work.width, H = work.height, g = guideRect(W, H);
 
     if (state.filter && state.debug) {
-      // Tres paneles: en fila si la pantalla es ancha, en columna si es alta
-      const stage = $('stage'), wide = stage.clientWidth >= stage.clientHeight;
-      const gap = 8, lab = 22;
-      const VW = wide ? 3 * P + 2 * gap : P, VH = wide ? P + lab : 3 * (P + lab) + 2 * gap;
-      if (view.width !== VW || view.height !== VH) { view.width = VW; view.height = VH; }
-      vctx.fillStyle = '#0f1630';
-      vctx.fillRect(0, 0, VW, VH);
-      vctx.font = '500 13px "Space Grotesk", system-ui, sans-serif';
-      const res = readCard(g);
-      const panels = [['carta', () => pctx.drawImage(work, g.x, g.y, g.s, g.s, 0, 0, P, P)],
-                      ['canal azul−amarillo', paintChannel], ['espectro', () => paintSpectrum(res)]];
-      panels.forEach(([name, paint], k) => {
-        const x = wide ? k * (P + gap) : 0, y = wide ? 0 : k * (P + lab + gap);
-        paint();
-        vctx.drawImage(proc, x, y + lab);
-        vctx.fillStyle = '#9aa6c7';
-        vctx.fillText(name, x + 2, y + 15);
-      });
-      const fmt = z => `${z > 0 ? 'SÍ' : 'NO'} z ${Math.abs(z).toFixed(1)}`;
-      $('caption').textContent = `eje Z ${fmt(res.z)} · eje X ${fmt(res.x)} · giro ${(res.th * 180 / Math.PI).toFixed(0)}° · escala ${res.sc.toFixed(2)}`;
+      if (view.width !== P || view.height !== P) { view.width = P; view.height = P; }
+      const res = readCard();
+      paintRead(res);
+      vctx.drawImage(proc, 0, 0);
+      const nivel = { sure: 'segura', maybe: 'dudosa', none: 'no se lee' }[res.level];
+      $('caption').textContent = `carta ${res.id} · ${nivel} · distancia ${res.dist} · margen ${res.margen.toFixed(2)} · contraste ${res.contraste.toFixed(2)}`;
       return;
     }
 
@@ -639,7 +437,7 @@
     vctx.putImageData(raw, 0, 0);
     drawGuide(g);
     if (state.filter) {
-      const v = verdict(readCard(g));
+      const v = verdict(readCard());
       vctx.fillStyle = state.filter === 'z' ? 'rgba(224, 71, 60, .16)' : 'rgba(47, 211, 220, .16)';
       vctx.fillRect(g.x, g.y, g.s, g.s);
       drawVerdict(g, v);
@@ -663,7 +461,7 @@
       // Tocar el filtro activo lo apaga
       state.filter = state.filter === btn.dataset.f ? null : btn.dataset.f;
       document.querySelectorAll('.filter').forEach(b => b.classList.toggle('active', b.dataset.f === state.filter));
-      smooth = null;
+      ultima = null;
       if (state.filter) {
         wave();
         const [title, msg] = QUIPS_FILTER[state.filter];
@@ -774,13 +572,11 @@
   });
 
   // ---------- Imagen demo ----------
-  // El dorso de las cartas (la flor de órbitas) con el código a la misma
-  // amplitud que las impresas, girado al azar y con luz despareja y ruido.
-  const DEMO_AMP = 4;
-  const LUM_COMP = 0.0722 / (0.2126 + 0.7152);
+  // El dorso de una carta al azar (la flor de órbitas con el patrón de
+  // puntitos de su ID), girado y corrido al azar, con luz despareja y ruido.
 
   // Medidas en mm desde el centro, tomadas de tools/dorso_base.png
-  function drawFlower(ctx, cx, cy, u) {
+  function drawFlower(ctx, cx, cy, u, patron) {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.fillStyle = '#13203c';
@@ -795,9 +591,10 @@
       ctx.stroke();
     }
     ctx.fillStyle = ctx.strokeStyle = '#f0b03c';
-    for (let k = 0; k < 24; k++) {
-      const a = k * Math.PI / 12;
-      ctx.beginPath(); ctx.arc(17.6 * u * Math.cos(a), 17.6 * u * Math.sin(a), 0.65 * u, 0, Math.PI * 2); ctx.fill();
+    for (let k = 0; k < Lector.N_PUNTOS; k++) {
+      if (!((patron >> k) & 1)) continue;
+      const a = k * 2 * Math.PI / Lector.N_PUNTOS;
+      ctx.beginPath(); ctx.arc(17.6 * u * Math.cos(a), 17.6 * u * Math.sin(a), 0.7 * u, 0, Math.PI * 2); ctx.fill();
     }
     ctx.lineWidth = 0.25 * u;
     for (let k = 0; k < 16; k++) {
@@ -815,42 +612,17 @@
 
   function makeDemo() {
     const W = 720, H = 540, g = guideRect(W, H), u = g.s / CARD_MM;
+    const id = 1 + Math.floor(Math.random() * Lector.N_IDS);
 
-    // La carta con sangrado, con el código sumado como en el generador
-    const N = Math.round(44 * u), card = document.createElement('canvas');
-    card.width = card.height = N;
-    const cctx = card.getContext('2d', { willReadFrequently: true });
-    drawFlower(cctx, N / 2, N / 2, u);
-    const img = cctx.getImageData(0, 0, N, N), o = img.data;
-    const answers = { z: Math.random() < 0.5 ? 'si' : 'no', x: Math.random() < 0.5 ? 'si' : 'no' };
-    const waves = [...CODES[`z_${answers.z}`], ...CODES[`x_${answers.x}`]]
-      .map(([fx, fy]) => [fx, fy, Math.random() * 2 * Math.PI]);
-    const code = new Float32Array(N * N);
-    let ss = 0;
-    for (let y = 0; y < N; y++) {
-      for (let x = 0; x < N; x++) {
-        const X = (x - N / 2) / u, Y = (y - N / 2) / u;
-        let v = 0;
-        for (const [fx, fy, ph] of waves) v += Math.cos(2 * Math.PI * (fx * X + fy * Y) + ph);
-        code[y * N + x] = v; ss += v * v;
-      }
-    }
-    const k = DEMO_AMP / Math.sqrt(ss / (N * N));
-    for (let p = 0, i = 0; p < N * N; p++, i += 4) {
-      const c = code[p] * k;
-      o[i] -= LUM_COMP * c; o[i + 1] -= LUM_COMP * c; o[i + 2] += c;
-    }
-    cctx.putImageData(img, 0, 0);
-
-    // Sobre la mesa, girada al azar
+    // Sobre la mesa, girada y un poco corrida
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
     const ctx = c.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#3a3f52';
     ctx.fillRect(0, 0, W, H);
-    ctx.translate(W / 2, H / 2);
+    ctx.translate(W / 2 + (Math.random() - 0.5) * 3 * u, H / 2 + (Math.random() - 0.5) * 3 * u);
     ctx.rotate(Math.random() * 2 * Math.PI);
-    ctx.drawImage(card, -N / 2, -N / 2);
+    drawFlower(ctx, 0, 0, u, Lector.PATRONES[id - 1]);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     // Luz despareja y ruido de cámara

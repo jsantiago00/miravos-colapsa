@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>El Espía — laboratorio de bots</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#14213D;--navy2:#1E2F55;--line:#30467A;--cel:#74ACDF;--sol:#F2B33D;--crema:#FBF6EA;--muted:#AFC3DE;
+ --bg:var(--navy);--fg:var(--crema);color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:var(--navy);--fg:var(--crema)}}
+:root[data-theme="dark"]{--bg:var(--navy)}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Space Grotesk",system-ui,sans-serif;font-size:16px;line-height:1.45}
+main{max-width:720px;margin:0 auto;padding:18px 18px 40px}
+h1,h2,h3{font-family:"Fraunces",Georgia,serif;font-weight:800;line-height:1.08;margin:0 0 10px}
+h1{font-size:2.3rem}h2{font-size:1.6rem}h3{font-size:1.2rem}
+p{margin:0 0 10px}.muted{color:var(--muted)}.hint{font-size:.88rem;color:var(--muted)}
+.tabs{display:flex;gap:8px;margin:14px 0 18px}
+.tabs button{flex:1;background:transparent;color:var(--fg);border:1.5px solid var(--line)}
+.tabs button[aria-selected="true"]{background:var(--cel);color:var(--navy);border-color:var(--cel)}
+button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:12px 16px;cursor:pointer;background:var(--sol);color:var(--navy)}
+button.sec{background:transparent;color:var(--fg);border:1.5px solid var(--line)}
+button.cel{background:var(--cel)}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--cel);outline-offset:2px}
+.panel{background:var(--navy2);border-radius:14px;padding:14px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:3px}
+input,select{font:inherit;width:100%;padding:9px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--navy);color:var(--fg)}
+input[type=checkbox]{width:auto}
+.seats{display:flex;flex-wrap:wrap;gap:8px}
+.seat{padding:8px 12px;border-radius:999px;background:var(--navy);border:1.5px solid var(--line);font-weight:500}
+.seat.now{background:var(--sol);color:var(--navy);border-color:var(--sol)}
+.seat.you{border-color:var(--cel)}
+.log{max-height:280px;overflow:auto;font-size:.95rem}
+.log div{padding:4px 0;border-bottom:1px solid var(--line)}
+.si{color:var(--sol);font-weight:700}.no{color:var(--cel);font-weight:700}
+.big{font-family:"Fraunces",Georgia,serif;font-weight:800;font-size:4.5rem;line-height:1;margin:6px 0}
+.tool{border:2px solid var(--sol);border-radius:12px;padding:12px;margin:10px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row>button{flex:1}
+.bar{height:26px;border-radius:8px;overflow:hidden;display:flex;margin:6px 0 4px;font-size:.85rem;font-weight:700}
+.bar span{display:flex;align-items:center;padding:0 8px;white-space:nowrap}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+td,th{padding:6px 6px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted);font-weight:500}
+</style>
+</head>
+<body>
+<main>
+ <h1>El Espía</h1>
+ <p class="muted">Laboratorio de pruebas: jugá una partida contra bots o simulá cientos para calibrar las reglas.</p>
+ <div class="tabs" role="tablist">
+  <button role="tab" id="t-jugar" aria-selected="true" onclick="tab('jugar')">Jugar con bots</button>
+  <button role="tab" id="t-sim" aria-selected="false" onclick="tab('sim')">Simular</button>
+ </div>
+ <section id="jugar"></section>
+ <section id="sim" hidden></section>
+</main>
+<script>
+// ===== Motor de El Espía (N laboratorios + Observador) =====
+const Engine=(()=>{
+function combos(n,k){const out=[];const rec=(s,a)=>{if(a.length===k){out.push(a.slice());return}for(let i=s;i<n;i++){a.push(i);rec(i+1,a);a.pop()}};rec(0,[]);return out}
+function makeHyps(n,k){return combos(n,k).map(c=>{const d=Array(n).fill(false);c.forEach(i=>d[i]=true);return d})}
+function normPost(L){const m=Math.max(...L);const e=L.map(v=>Math.exp(v-m));const z=e.reduce((a,b)=>a+b,0);return e.map(v=>v/z)}
+function pDist(H,L,n){const p=normPost(L);const out=Array(n).fill(0);H.forEach((h,hi)=>h.forEach((d,i)=>{if(d)out[i]+=p[hi]}));return out}
+const LOG=v=>v>0?Math.log(v):-1e9;
+
+function newGame(P,rng=Math.random){
+  const n=P.nLabs,k=P.nDist;
+  const dist=Array(n).fill(false);
+  const perm=[...Array(n).keys()].sort(()=>rng()-.5);
+  perm.slice(0,k).forEach(i=>dist[i]=true);
+  const knower=P.knower?Math.floor(rng()*n):-1;
+  const H=makeHyps(n,k);
+  const L=[...Array(n)].map(()=>H.map(()=>0));
+  if(knower>=0) H.forEach((h,hi)=>{if(h[knower]!==dist[knower])L[knower][hi]=-1e9});
+  return {P,n,k,dist,knower,H,L,LO:H.map(()=>0),r:0,log:[],rounds:[],rng};
+}
+function order(G,r){const n=G.n,s=r%n,d=r%2===0?1:-1;const o=[];for(let j=0;j<n;j++)o.push(((s+j*d)%n+n)%n);o.push(s);return o}
+
+// probabilidad de que el lab m mienta (política de bot)
+function lieProb(G,m){
+  const P=G.P;
+  if(m===G.knower) return G.dist[m]?P.qHide:P.qHonest;
+  const me=pDist(G.H,G.L[m],G.n)[m];
+  return me>0.6?P.qHide:P.qHonest;
+}
+// una medición; devuelve la entrada del registro (sin anuncio)
+function measure(G,st){
+  const m=st.ord[st.k], ax=G.dist[m]?1:0, c=st.card, rng=G.rng;
+  let res,col=false;
+  if(c.ax===null) res=st.firstRes!==undefined? st.firstRes[ax] : (rng()<.5?1:0);
+  else if(c.ax===ax) res=c.res;
+  else {res=rng()<.5?1:0;col=true}
+  st.card={ax,res};
+  const e={r:G.r,k:st.k,p:m,res,col,act:null};
+  const mode=G.P.actMode||'directo';
+  const pr= mode==='reparto'?0 : mode==='azar'? (c.ax===null?0:(col?G.pc:G.p0r)) : (col?G.P.p:(c.ax===null?0:(mode==='ruido'?G.P.p0:0)));
+  if(rng()<pr){e.act=rng()<G.P.wComp?'comparar':'bitacora'}
+  return e;
+}
+function applyCompare(G,m,j){
+  const same=G.dist[m]===G.dist[j];
+  G.H.forEach((h,hi)=>{if((h[m]===h[j])!==same)G.L[m][hi]=-1e9});
+  return same;
+}
+// actualizar creencias al cierre de la ronda
+function updateRound(G,ents,ord,seen,pool){
+  const P=G.P,ea=P.epsAssumed,H=G.H,n=G.n;
+  const fwd=(h,obsFn)=>{
+    let a=[.5*obsFn(0,0),.5*obsFn(0,1)];
+    for(let k=1;k<ord.length;k++){
+      const same=h[ord[k]]===h[ord[k-1]];
+      let b= same? [a[0],a[1]] : [(a[0]+a[1])/2,(a[0]+a[1])/2];
+      b=[b[0]*obsFn(k,0),b[1]*obsFn(k,1)];a=b;
+    }
+    return a[0]+a[1];
+  };
+  for(let i=0;i<n;i++){
+    H.forEach((h,hi)=>{
+      if(G.L[i][hi]<-1e8)return;
+      const lik=fwd(h,(k,t)=>{
+        const e=ents[k];
+        if(e.p===i || (e.revealTo===i)) return t===e.res?1:0;
+        return t===e.ann?1-ea:ea;
+      });
+      let v=LOG(lik);
+      ents.forEach((e,k)=>{ if(e.p!==i||k===0)return;
+        const c=h[ord[k]]!==h[ord[k-1]];
+        const mode=P.actMode||'directo';
+        if(mode==='reparto') return;
+        if(mode==='azar'){ v+= LOG(c?(e.act?0.175:0.825):(e.act?0.15:0.85)); return; }
+        const q0= mode==='ruido'?P.p0:0;
+        v+= LOG(c?(e.act?P.p:1-P.p):(e.act?q0:1-q0));
+      });
+      if(pool){ // likelihood de recibir pool[i] herramientas dado el nº de colapsos de la hipótesis
+        let C=0;for(let k=1;k<ord.length;k++)if(h[ord[k]]!==h[ord[k-1]])C++;
+        const q=P.p/n, m=pool[i]; let b=1;for(let x=0;x<m;x++)b*=(C-x)/(x+1);
+        v+= m>C?-1e9: LOG(b*Math.pow(q,m)*Math.pow(1-q,C-m));
+      }
+      G.L[i][hi]+=v;
+    });
+  }
+  H.forEach((h,hi)=>{
+    const lik=fwd(h,(k,t)=>{const e=ents[k]; if(seen.includes(k)) return t===e.res?1:0; return P.obsHears?(t===e.ann?1-ea:ea):1;});
+    G.LO[hi]+=LOG(lik);
+  });
+}
+// ronda completa jugada por bots (para simulación)
+function newRoundProbs(G){G.pc=0.10+G.rng()*0.15;G.p0r=0.10+G.rng()*0.10}
+function botRound(G){
+  newRoundProbs(G);
+  const ord=order(G,G.r);const st={ord,k:0,card:{ax:null,res:null}};const ents=[];
+  for(st.k=0;st.k<ord.length;st.k++){
+    const e=measure(G,st);
+    if(e.act==='comparar'){const others=[...Array(G.n).keys()].filter(x=>x!==e.p);e.with=others[Math.floor(G.rng()*others.length)];e.same=applyCompare(G,e.p,e.with)}
+    if(e.act==='bitacora'){ents[st.k-1].revealTo=e.p}
+    e.ann= G.rng()<lieProb(G,e.p)? 1-e.res : e.res;
+    ents.push(e);
+  }
+  const seen=pickSeen(G,ord.length);
+  let pool=null;
+  if(G.P.actMode==='reparto'){
+    pool=Array(G.n).fill(0);
+    ents.forEach((e,k)=>{if(e.col&&G.rng()<G.P.p)pool[Math.floor(G.rng()*G.n)]++});
+    // cada herramienta repartida: comparar bases con un lab al azar
+    pool.forEach((c,i)=>{for(let x=0;x<c;x++){const o=[...Array(G.n).keys()].filter(y=>y!==i);applyCompare(G,i,o[Math.floor(G.rng()*o.length)])}});
+  }
+  updateRound(G,ents,ord,seen,pool);
+  G.log.push(...ents);G.rounds.push({ord,ents,seen});G.r++;
+}
+function pickSeen(G,len){const idx=[...Array(len).keys()].sort(()=>G.rng()-.5);return idx.slice(0,G.P.obsSee).sort((a,b)=>a-b)}
+function botVote(G,i){
+  const pd= i==='obs'? pDist(G.H,G.LO,G.n) : pDist(G.H,G.L[i],G.n);
+  let best=-1,bv=-1;for(let j=0;j<G.n;j++){if(j===i)continue;if(pd[j]>bv){bv=pd[j];best=j}}return best;
+}
+function tally(G,votes){
+  const t=Array(G.n).fill(0);votes.forEach(v=>t[v]++);const top=Math.max(...t);const tops=t.map((v,i)=>v===top?i:-1).filter(i=>i>=0);
+  const ok=tops.length===1&&G.dist[tops[0]];return {t,tops,ok};
+}
+function simulate(P,N,rng=Math.random){
+  let maj=0,obsOk=0,acts=[0,0],scans=[0,0],len=0;
+  for(let g=0;g<N;g++){
+    const G=newGame(P,rng);
+    for(let r=0;r<P.R;r++)botRound(G);
+    const votes=[];for(let i=0;i<G.n;i++)votes.push(botVote(G,i));
+    const ov=botVote(G,'obs');votes.push(ov);if(G.dist[ov])obsOk++;
+    if(tally(G,votes).ok)maj++;
+    G.log.forEach(e=>{const d=G.dist[e.p]?1:0;if(e.k>0){scans[d]++;if(e.act)acts[d]++}});
+    len+=G.log.length;
+  }
+  return {maj:maj/N,dist:1-maj/N,obs:obsOk/N,actD:acts[1]/scans[1],actM:acts[0]/scans[0],scansPerGame:len/N};
+}
+return {newRoundProbs,newGame,order,measure,applyCompare,updateRound,botRound,pickSeen,botVote,tally,simulate,pDist,lieProb};
+})();
+if(typeof module!=='undefined')module.exports=Engine;
+
+const $=s=>document.querySelector(s);
+const NAMES=['Ada','Bruno','Caro','Dani','Eli','Fede','Gabi','Hugo'];
+const PRESETS={4:{nLabs:3,nDist:1,R:4},5:{nLabs:4,nDist:1,R:2},6:{nLabs:5,nDist:2,R:2},7:{nLabs:6,nDist:2,R:2},8:{nLabs:7,nDist:3,R:2}};
+const BOT={actMode:'azar',p0:0.1,wComp:0.5,qHonest:0.1,qHide:0.5,epsAssumed:0.2,obsHears:false,knower:true};
+const SN=v=>v?'<span class="si">SÍ</span>':'<span class="no">NO</span>';
+function tab(t){['jugar','sim'].forEach(x=>{$('#'+x).hidden=x!==t;$('#t-'+x).setAttribute('aria-selected',x===t)})}
+
+/* ================= JUGAR ================= */
+let G=null, U=null; // U: estado de la interfaz
+function setupPlay(){
+  $('#jugar').innerHTML=`<div class="panel"><h2>Nueva partida</h2>
+   <div class="grid">
+    <div><label for="pj">Jugadores</label><select id="pj">${[4,5,6,7,8].map(n=>`<option ${n===4?'selected':''}>${n}</option>`).join('')}</select></div>
+    <div><label for="prol">Tu rol</label><select id="prol"><option value="azar">Al azar</option><option value="lab">Laboratorio</option><option value="obs">Observador</option></select></div>
+    <div><label for="pp">Herramientas (modos fijos)</label><select id="pp"><option value="0.1">Pocas</option><option value="0.2" selected>Normal</option><option value="0.35">Muchas</option></select></div>
+    <div><label for="pm">Cuándo salen herramientas</label><select id="pm"><option value="azar" selected>Ruido al azar por ronda</option><option value="ruido">Ruido fijo</option><option value="directo">Solo al colapsar (delatan)</option></select></div>
+    <div><label for="po">El Observador ve por ronda</label><select id="po"><option value="1" selected>1 medición</option><option value="2">2 mediciones</option></select></div>
+   </div>
+   <p class="hint" style="margin-top:10px" id="pdesc"></p>
+   <button onclick="startPlay()">Empezar</button></div>`;
+  const desc=()=>{const c=PRESETS[$('#pj').value];$('#pdesc').textContent=`${c.nLabs} laboratorios (${c.nDist===1?'1 distinto':c.nDist+' distintos'}) + Observador, ${c.R} rondas.`};
+  $('#pj').onchange=desc;desc();
+}
+function startPlay(){
+  const n=+$('#pj').value,c=PRESETS[n];
+  const md=$('#pm').value, pb=+$('#pp').value;
+  const P={...BOT,...c,actMode:md,p:md==='ruido'?pb+0.1:pb,p0:0.1,obsSee:+$('#po').value};
+  G=Engine.newGame(P);
+  let rol=$('#prol').value; if(rol==='azar') rol=Math.random()<1/(c.nLabs+1)?'obs':'lab';
+  U={you: rol==='obs'?'obs':Math.floor(Math.random()*G.n), names:NAMES.slice(0,G.n), logHtml:[], obsName:NAMES[G.n]};
+  U.names=U.names.map((x,i)=>i===U.you?'Vos':x); if(U.you==='obs')U.obsName='Vos';
+  roleScreen();
+}
+function seatsHTML(cur){
+  return `<div class="seats">${(U.ord||[]).map((p,k)=>`<span class="seat ${k===cur?'now':''} ${p===U.you?'you':''}">${U.names[p]}</span>`).join('<span aria-hidden="true">›</span>')}</div>`;
+}
+function roleScreen(){
+  let t;
+  if(U.you==='obs') t=`<h2>Sos el Observador</h2><p>No medís. Al final de cada ronda ves ${G.P.obsSee===1?'una medición verdadera':'dos mediciones verdaderas'}. Comparalas con lo que dijeron los bots.</p>`;
+  else{
+    t=`<h2>Sos un laboratorio</h2><p>Tu detector mide en un eje que no conocés. Hay ${G.k===1?'un laboratorio distinto':G.k+' laboratorios distintos'} entre ${G.n}.</p>`;
+    if(G.knower===U.you) t+=`<div class="tool"><h3>Tu detector vino calibrado</h3><p style="margin:0">Sabés que <b>${G.dist[U.you]?'sos distinto':'sos de la mayoría'}</b>.</p></div>`;
+  }
+  $('#jugar').innerHTML=`<div class="panel">${t}<p class="hint">El Observador es ${U.obsName}. ${G.P.R} rondas.</p><button onclick="startRound()">Arrancar ronda 1</button></div>`;
+}
+function startRound(){
+  Engine.newRoundProbs(G); U.ord=Engine.order(G,G.r); U.st={ord:U.ord,k:0,card:{ax:null,res:null}}; U.ents=[];
+  U.logHtml.push(`<div class="muted"><b>Ronda ${G.r+1}</b>: ${U.ord.map(p=>U.names[p]).join(' › ')}</div>`);
+  step();
+}
+function board(inner){
+  $('#jugar').innerHTML=`<div class="panel"><p class="muted" style="margin-bottom:6px">Ronda ${G.r+1} de ${G.P.R}</p>${seatsHTML(U.st.k)}</div>
+   <div class="panel">${inner}</div>
+   <div class="panel"><h3>Lo que se dijo</h3><div class="log" id="log">${U.logHtml.join('')}</div></div>`;
+  const l=$('#log');l.scrollTop=l.scrollHeight;
+}
+function step(){
+  const st=U.st;
+  if(st.k>=U.ord.length) return endRound();
+  const m=U.ord[st.k];
+  if(m===U.you){ board(`<h3>Te toca medir</h3><p class="muted">${st.k===0?'Sacás un qubit nuevo.':'Te llegó el qubit de '+U.names[U.ord[st.k-1]]+'.'}</p><button onclick="youMeasure()">Medir</button>`); return; }
+  const e=Engine.measure(G,st);
+  if(e.act==='comparar'){const o=[...Array(G.n).keys()].filter(x=>x!==e.p);e.with=o[Math.floor(Math.random()*o.length)];e.same=Engine.applyCompare(G,e.p,e.with)}
+  if(e.act==='bitacora'&&st.k>0)U.ents[st.k-1].revealTo=e.p;
+  e.ann=Math.random()<Engine.lieProb(G,e.p)?1-e.res:e.res;
+  U.ents.push(e);
+  U.logHtml.push(`<div>${U.names[e.p]} (${st.k+1}ª): ${SN(e.ann)}</div>`);
+  st.k++;
+  board(`<p>${U.names[e.p]} midió y dijo ${SN(e.ann)}.</p><button onclick="step()">Seguir</button>`);
+}
+function youMeasure(){
+  const st=U.st,e=Engine.measure(G,st);U.cur=e;
+  if(e.act==='bitacora'&&st.k>0){U.ents[st.k-1].revealTo=e.p}
+  showYou();
+}
+function showYou(){
+  const e=U.cur;let tool='';
+  if(e.act==='comparar'&&e.with===undefined){
+    tool=`<div class="tool"><h3>Ancilla: comparar bases</h3><p>Te quedó una herramienta. Elegí un laboratorio y sabés si mide en tu mismo eje.</p><div class="row">${[...Array(G.n).keys()].filter(x=>x!==e.p).map(o=>`<button class="cel" onclick="youCompare(${o})">${U.names[o]}</button>`).join('')}</div></div>`;
+  }else if(e.act==='comparar'){
+    tool=`<div class="tool"><h3>Comparar bases</h3><p style="margin:0">${U.names[e.with]} mide <b>${e.same?'en tu mismo eje':'en el otro eje'}</b>.</p></div>`;
+  }else if(e.act==='bitacora'){
+    const prev=U.ents[U.st.k-1];
+    tool=`<div class="tool"><h3>Ancilla: bitácora</h3><p style="margin:0">Te quedó una herramienta: ${U.names[prev.p]} midió de verdad ${SN(prev.res)} (y dijo ${SN(prev.ann)}).</p></div>`;
+  }
+  const wait=e.act==='comparar'&&e.with===undefined;
+  board(`<p class="muted" style="margin:0">Tu detector dice</p><div class="big">${SN(e.res)}</div>${tool}
+   <p>¿Qué decís en voz alta?</p><div class="row"><button ${wait?'disabled':''} onclick="youSay(1)">Digo SÍ</button><button class="cel" ${wait?'disabled':''} onclick="youSay(0)">Digo NO</button></div>`);
+}
+function youCompare(o){U.cur.with=o;U.cur.same=Engine.applyCompare(G,U.cur.p,o);showYou()}
+function youSay(v){const e=U.cur;e.ann=v;U.ents.push(e);U.logHtml.push(`<div><b>Vos</b> (${U.st.k+1}ª): ${SN(v)}${v!==e.res?' <span class="hint">(mentiste)</span>':''}${e.act?` <span class="hint">· te salió ${e.act}</span>`:''}</div>`);U.st.k++;step()}
+function endRound(){
+  const seen=Engine.pickSeen(G,U.ord.length);
+  Engine.updateRound(G,U.ents,U.ord,seen);
+  G.log.push(...U.ents);G.rounds.push({ord:U.ord,ents:U.ents,seen});G.r++;
+  let inner;
+  if(U.you==='obs'){
+    inner=`<h3>Lo que ves como Observador</h3>${seen.map(k=>{const e=U.ents[k];return `<p>${U.names[e.p]} (${k+1}ª) midió de verdad ${SN(e.res)}.</p>`}).join('')}`;
+    U.logHtml.push(`<div class="hint">Viste: ${seen.map(k=>`${U.names[U.ents[k].p]} ${k+1}ª = ${U.ents[k].res?'SÍ':'NO'}`).join(', ')}</div>`);
+  }else inner=`<p>Se terminó la ronda. ${U.obsName} miró en secreto parte de la verdad.</p>`;
+  inner+= G.r<G.P.R? `<button onclick="startRound()">Ronda ${G.r+1}</button>` : `<button onclick="voteScreen()">Ir a la votación</button>`;
+  board(inner);
+}
+function voteScreen(){
+  const opts=[...Array(G.n).keys()].filter(x=>x!==U.you);
+  board(`<h3>¿Quién es el distinto?</h3><p class="hint">${G.k>1?'Alcanza con que el más votado sea uno de los distintos.':''}</p><div class="row">${opts.map(o=>`<button class="cel" onclick="finish(${o})">${U.names[o]}</button>`).join('')}</div>`);
+}
+function finish(myVote){
+  const votes=[];
+  for(let i=0;i<G.n;i++) votes.push(i===U.you?myVote:Engine.botVote(G,i));
+  votes.push(U.you==='obs'?myVote:Engine.botVote(G,'obs'));
+  const T=Engine.tally(G,votes);
+  const youTeam= U.you==='obs'||!G.dist[U.you];
+  const won= youTeam?T.ok:!T.ok;
+  const voters=[...U.names,U.obsName];
+  const rows=G.log.map(e=>`<tr><td>${e.r+1}</td><td>${U.names[e.p]}</td><td>${G.dist[e.p]?'distinto':'mayoría'}</td><td>${SN(e.res)}</td><td>${SN(e.ann)}${e.ann!==e.res?' ✗':''}</td><td>${e.col?'colapsó':''}${e.act?' · '+e.act:''}</td></tr>`).join('');
+  $('#jugar').innerHTML=`<div class="panel"><h2>${won?'Ganaste':'Perdiste'}</h2>
+   <p>${T.ok?'Ganan la mayoría y el Observador':'Gana el bando distinto'}. ${G.k===1?'El distinto era':'Los distintos eran'} <b>${[...Array(G.n).keys()].filter(i=>G.dist[i]).map(i=>U.names[i]).join(' y ')}</b>.${G.knower>=0?` El calibrado era ${U.names[G.knower]}.`:''}</p>
+   <div class="scroll"><table><tr><th>Votó</th><th>A</th></tr>${votes.map((v,i)=>`<tr><td>${voters[i]}</td><td>${U.names[v]}</td></tr>`).join('')}</table></div></div>
+   <div class="panel"><h3>Todas las mediciones</h3><div class="scroll"><table><tr><th>R</th><th>Quién</th><th>Bando</th><th>Midió</th><th>Dijo</th><th></th></tr>${rows}</table></div></div>
+   <button onclick="setupPlay()">Otra partida</button>`;
+}
+
+/* ================= SIMULAR ================= */
+function setupSim(){
+  $('#sim').innerHTML=`<div class="panel"><h2>Simular partidas</h2>
+  <div class="grid">
+   <div><label for="sn">Laboratorios</label><input id="sn" type="number" min="3" max="7" value="3"></div>
+   <div><label for="sk">Distintos</label><input id="sk" type="number" min="1" max="3" value="1"></div>
+   <div><label for="sr">Rondas</label><input id="sr" type="number" min="1" max="8" value="4"></div>
+   <div><label for="sp">Prob. de herramienta por colapso</label><input id="sp" type="number" step="0.05" min="0" max="1" value="0.3"></div>
+   <div><label for="so">Mediciones que ve el Observador</label><input id="so" type="number" min="0" max="4" value="1"></div>
+   <div><label for="sh">Mentira de la mayoría</label><input id="sh" type="number" step="0.05" min="0" max="1" value="0.1"></div>
+   <div><label for="sd">Mentira del que se esconde</label><input id="sd" type="number" step="0.05" min="0" max="1" value="0.5"></div>
+   <div><label for="sc">Comparar vs. bitácora</label><input id="sc" type="number" step="0.1" min="0" max="1" value="0.5"></div>
+   <div><label for="sm">Cuándo salen herramientas</label><select id="sm"><option value="azar" selected>Ruido al azar por ronda (10–25% / 10–20%)</option><option value="ruido">Ruido fijo</option><option value="directo">Solo al colapsar</option><option value="reparto">Repartidas al final de la ronda</option></select></div>
+   <div><label for="s0">Prob. sin colapso (modo ruido)</label><input id="s0" type="number" step="0.05" min="0" max="1" value="0.1"></div>
+   <div><label for="sN">Partidas</label><input id="sN" type="number" min="100" max="5000" step="100" value="1000"></div>
+  </div>
+  <p style="margin-top:10px"><label style="display:inline"><input type="checkbox" id="skn" checked> Hay un laboratorio calibrado</label></p>
+  <div class="row"><button onclick="runSim()">Simular</button><button class="sec" onclick="runScale()">Tabla por cantidad de jugadores</button></div></div>
+  <div id="sout"></div>`;
+}
+function readP(){
+  const n=+$('#sn').value,k=+$('#sk').value;
+  if(k*2>=n){alert('Los distintos tienen que ser menos de la mitad de los laboratorios.');return null}
+  return {nLabs:n,nDist:k,R:+$('#sr').value,p:+$('#sp').value,obsSee:+$('#so').value,qHonest:+$('#sh').value,qHide:+$('#sd').value,wComp:+$('#sc').value,epsAssumed:0.2,obsHears:false,knower:$('#skn').checked,actMode:$('#sm').value,p0:+$('#s0').value};
+}
+function barHTML(o){const a=Math.round(o.maj*100);return `<div class="bar"><span style="width:${a}%;background:var(--cel);color:var(--navy)">Mayoría ${a}%</span><span style="flex:1;background:var(--sol);color:var(--navy)">Distinto ${100-a}%</span></div>`}
+function runSim(){
+  const P=readP();if(!P)return;const N=+$('#sN').value;
+  $('#sout').innerHTML='<div class="panel">Simulando…</div>';
+  setTimeout(()=>{const o=Engine.simulate(P,N);
+   $('#sout').innerHTML=`<div class="panel"><h3>${N} partidas</h3>${barHTML(o)}
+    <p>El Observador, votando solo, acierta el ${(o.obs*100).toFixed(0)}%.</p>
+    ${P.actMode==='reparto'?'':`<p>Herramientas por escaneo: distinto ${(o.actD*100).toFixed(0)}%, mayoría ${(o.actM*100).toFixed(0)}%.</p>`}
+    <p class="hint">${o.scansPerGame.toFixed(0)} escaneos por partida. Lo parejo para un bando chico ronda el 40–50%.</p></div>`},30);
+}
+function runScale(){
+  const base=readP();if(!base)return;
+  $('#sout').innerHTML='<div class="panel">Simulando…</div>';
+  setTimeout(()=>{
+   const rows=Object.entries(PRESETS).map(([j,c])=>{const o=Engine.simulate({...base,...c},800);return `<tr><td>${j}</td><td>${c.nLabs} + Obs.</td><td>${c.nDist}</td><td>${c.R}</td><td>${(o.maj*100).toFixed(0)}%</td><td>${(o.dist*100).toFixed(0)}%</td><td>${o.scansPerGame.toFixed(0)}</td></tr>`}).join('');
+   $('#sout').innerHTML=`<div class="panel"><h3>Por cantidad de jugadores</h3><p class="hint">Usa los otros parámetros del formulario; laboratorios, distintos y rondas salen de la tabla recomendada.</p><div class="scroll"><table><tr><th>Jugadores</th><th>Labs</th><th>Distintos</th><th>Rondas</th><th>Mayoría</th><th>Distinto</th><th>Escaneos</th></tr>${rows}</table></div></div>`},30);
+}
+setupPlay();setupSim();
+</script>
+</body>
+</html>

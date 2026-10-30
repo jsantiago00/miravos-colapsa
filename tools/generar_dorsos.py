@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
-"""Generador de dorsos de qubits de Mirá Vos con respuestas ocultas.
+"""Generador de dorsos de qubits de Mirá Vos con su ID.
 
 Cada dorso es el dibujo de siempre (la flor de órbitas, tools/dorso_base.png)
-con un código invisible encima: una respuesta SÍ/NO para medir en el eje Z y
-otra para el eje X. El código es un "acorde" de ondas finas en el eje azul−amarillo
-(ver tools/codigo_espectral.py); el ojo no lo ve y la app lo lee aunque la
-carta esté girada o mal encuadrada.
+con algunos puntitos del anillo borrados: el patrón de huecos es el ID de la
+carta (ver tools/codigo_puntos.py). La app lo lee aunque la carta esté girada o
+mal encuadrada. Del ID salen las respuestas del juego base (eje Z y eje X).
 
 Como en el frente: en Z, SÍ = ↑ (+1) y NO = ↓ (−1); en X, SÍ = → y NO = ←.
 
 Salidas (en --salida):
   png/dorso_NN.png     48 dorsos de 520 × 520 px a 300 dpi (44 mm con sangrado).
-  dorsos.csv           manifiesto: respuesta de cada carta en cada eje, semilla.
+  dorsos.csv           manifiesto: ID de cada carta, su lugar en el pliego y sus respuestas.
   pliegos_dorsos.pdf   2 pliegos A4 de 24, espejados para doble faz.
-  hoja_prueba.pdf/png  barrido de amplitudes con las respuestas al pie.
+  hoja_prueba.pdf/png  16 dorsos para probar la lectura, con los IDs al pie.
 
 Uso:
-  python tools/generar_dorsos.py                  # todo, amplitud por defecto
+  python tools/generar_dorsos.py                  # todo
   python tools/generar_dorsos.py --solo-prueba    # solo la hoja de prueba
-  python tools/generar_dorsos.py --amp 6
 """
 
 import argparse
@@ -30,7 +28,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from codigo_espectral import BASE, codificar
+from codigo_puntos import BASE, N_IDS, marcar, respuestas
 
 DPI = 300
 PX_MM = DPI / 25.4
@@ -46,14 +44,9 @@ GRILLA_X_MM = 17.0
 GRILLA_Y_MM = 16.5
 COLUMNAS, FILAS = 4, 6
 POR_PLIEGO = COLUMNAS * FILAS
-N_CARTAS = 48
-
-AMP = 4.0                # desvío del código en niveles del canal azul
-AMPS_PRUEBA = (3, 4, 6, 8)
+N_CARTAS = N_IDS
 
 NAVY = (20, 29, 58)
-RESPUESTAS = ('si', 'no')
-COMBOS = [(r, c) for r in RESPUESTAS for c in RESPUESTAS]
 TXT = {'si': 'SÍ', 'no': 'NO'}
 
 
@@ -77,18 +70,12 @@ def fuente(tam, negrita=False):
 _base = None
 
 
-def generar_dorso(semilla, z, x, amp):
-    """Dorso de 520 × 520 con las respuestas en los ejes `z` y `x` ('si' | 'no')."""
+def generar_dorso(cid):
+    """Dorso de 520 × 520 de la carta cid (1 a 48)."""
     global _base
     if _base is None:
         _base = np.asarray(Image.open(BASE).convert('RGB'))
-    return Image.fromarray(codificar(_base, z, x, amp, semilla), 'RGB')
-
-
-def asignar(rng):
-    """48 cartas, 12 por cada combinación de respuestas, en orden al azar."""
-    pares = COMBOS * (N_CARTAS // len(COMBOS))
-    return [pares[i] for i in rng.permutation(len(pares))]
+    return Image.fromarray(marcar(_base, cid), 'RGB')
 
 
 # ---------- Pliegos ----------
@@ -182,45 +169,43 @@ def armar_pliegos(cartas, imagenes):
 # ---------- Hoja de prueba ----------
 
 def hoja_prueba(semilla):
+    """16 dorsos al azar en 4 filas, con sus IDs y respuestas al pie (dados
+    vuelta). Sirve para probar la lectura con la cámara antes de imprimir todo."""
     rng = np.random.default_rng([semilla, 999])
-    y0 = 40.0
+    ids = [int(i) + 1 for i in rng.permutation(N_CARTAS)[:16]]
+    filas, y0 = 4, 40.0
     hoja = Image.new('RGB', A4_PX, 'white')
     d = ImageDraw.Draw(hoja)
     f_tit, f_txt, f_eti = fuente(46, True), fuente(29), fuente(34, True)
 
-    d.text((mm(GRILLA_X_MM), mm(12)), 'Mirá Vos · hoja de prueba de amplitudes', fill=NAVY,
+    d.text((mm(GRILLA_X_MM), mm(12)), 'Mirá Vos · hoja de prueba de lectura', fill=NAVY,
            font=f_tit, anchor='ls')
-    instr = ('Cada fila prueba una amplitud del código oculto (niveles sobre 255). Las 4 cartas de la fila '
-             'tienen las 4 combinaciones de respuestas, en orden al azar.\n'
-             'Escaneá cada una midiendo en eje Z y en eje X, en cualquier orientación, y anotá SÍ/NO '
-             'y si la lectura fue segura.\n'
-             'Compará con las respuestas de abajo (están dadas vuelta). Elegí la amplitud más baja que '
-             'se lea segura siempre.')
+    instr = ('Cada dorso tiene su ID en el patrón de puntitos del anillo. Recortá las cartas, escaneá cada\n'
+             'una con la app (visor o El Espía), en cualquier orientación y con distinta luz, y anotá qué ID\n'
+             'leyó y si fue segura. Compará con la lista de abajo (está dada vuelta).')
     d.multiline_text((mm(GRILLA_X_MM), mm(16)), instr, fill=(60, 60, 60), font=f_txt, spacing=8)
 
-    respuestas = []
-    for f, amp in enumerate(AMPS_PRUEBA):
-        orden = rng.permutation(4)
-        y_c = mm(y0 + f * CELDA_MM + CELDA_MM / 2)
-        d.text((mm(GRILLA_X_MM - 2), y_c - 20), f'{amp}', fill=NAVY, font=f_eti, anchor='rm')
-        d.text((mm(GRILLA_X_MM - 2), y_c + 22), 'niveles', fill=(90, 90, 90), font=fuente(24), anchor='rm')
-        fila_resp = []
+    lineas = []
+    for f in range(filas):
+        fila = []
         for c in range(COLUMNAS):
-            z, x = COMBOS[orden[c]]
-            img = generar_dorso([semilla, 999, f, c], z, x, amp)
-            hoja.paste(img, (round(mm(GRILLA_X_MM + c * CELDA_MM)), round(mm(y0 + f * CELDA_MM))))
-            fila_resp.append(f'{"ABCD"[c]} {TXT[z]}/{TXT[x]}')
-        respuestas.append(f'{amp:>2}: ' + '   '.join(fila_resp))
+            cid = ids[f * COLUMNAS + c]
+            hoja.paste(generar_dorso(cid), (round(mm(GRILLA_X_MM + c * CELDA_MM)), round(mm(y0 + f * CELDA_MM))))
+            z, x = respuestas(cid)
+            fila.append(f'{"ABCD"[c]}{f + 1} = {cid:2d} ({TXT[z]}/{TXT[x]})')
+        lineas.append('   '.join(fila))
     for c in range(COLUMNAS):
         d.text((mm(GRILLA_X_MM + c * CELDA_MM + CELDA_MM / 2), mm(y0 - 1.5)), 'ABCD'[c],
                fill=NAVY, font=f_eti, anchor='ms')
-    marcas_de_corte(d, filas=len(AMPS_PRUEBA), y0_mm=y0)
+    for f in range(filas):
+        d.text((mm(GRILLA_X_MM - 2), mm(y0 + f * CELDA_MM + CELDA_MM / 2)), str(f + 1),
+               fill=NAVY, font=f_eti, anchor='rm')
+    marcas_de_corte(d, filas=filas, y0_mm=y0)
 
-    # Respuestas en chico y dadas vuelta, al pie
-    lineas = ['Respuestas (eje Z / eje X):'] + respuestas
-    caja = Image.new('RGB', (round(mm(150)), round(mm(30))), 'white')
-    ImageDraw.Draw(caja).multiline_text((0, 0), '\n'.join(lineas), fill=(110, 110, 110),
-                                        font=fuente(30), spacing=10)
+    # IDs en chico y dados vuelta, al pie
+    caja = Image.new('RGB', (round(mm(176)), round(mm(26))), 'white')
+    ImageDraw.Draw(caja).multiline_text((0, 0), '\n'.join(['ID (eje Z / eje X):'] + lineas),
+                                        fill=(110, 110, 110), font=fuente(26), spacing=10)
     caja = caja.rotate(180)
     hoja.paste(caja, (round(A4_PX[0] - mm(GRILLA_X_MM) - caja.width), round(mm(297 - 12) - caja.height)))
     return hoja
@@ -230,7 +215,6 @@ def hoja_prueba(semilla):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--amp', type=float, default=AMP, help='desvío del código, en niveles del canal azul')
     ap.add_argument('--semilla', type=int, default=2026)
     ap.add_argument('--salida', type=Path, default=Path(__file__).resolve().parent / 'salida')
     ap.add_argument('--solo-prueba', action='store_true', help='generar solo la hoja de prueba')
@@ -246,33 +230,32 @@ def main():
         return
 
     rng = np.random.default_rng(args.semilla)
+    orden = [int(i) + 1 for i in rng.permutation(N_CARTAS)]   # qué ID va en cada lugar del pliego
     cartas, imagenes = [], {}
     png = args.salida / 'png'
     png.mkdir(exist_ok=True)
     for viejo in png.glob('dorso_*.png'):
         viejo.unlink()
-    for i, (z, x) in enumerate(asignar(rng)):
-        cid = i + 1
-        semilla_carta = args.semilla * 1000 + cid
-        img = generar_dorso(semilla_carta, z, x, args.amp)
+    for i, cid in enumerate(orden):
+        img = generar_dorso(cid)
         img.save(png / f'dorso_{cid:02d}.png', dpi=(DPI, DPI))
         imagenes[cid] = img
         pos = i % POR_PLIEGO
+        z, x = respuestas(cid)
         cartas.append(dict(id=cid, pliego=i // POR_PLIEGO + 1, fila=pos // COLUMNAS, columna=pos % COLUMNAS,
-                           z=z, x=x, semilla=semilla_carta))
+                           z=z, x=x))
 
     with open(args.salida / 'dorsos.csv', 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
-        w.writerow(['id', 'pliego', 'fila', 'columna_frente', 'eje_z', 'eje_x', 'semilla', 'amp'])
-        for c in cartas:
-            w.writerow([c['id'], c['pliego'], c['fila'] + 1, c['columna'] + 1, TXT[c['z']], TXT[c['x']],
-                        c['semilla'], args.amp])
+        w.writerow(['id', 'pliego', 'fila', 'columna_frente', 'eje_z', 'eje_x'])
+        for c in sorted(cartas, key=lambda c: c['id']):
+            w.writerow([c['id'], c['pliego'], c['fila'] + 1, c['columna'] + 1, TXT[c['z']], TXT[c['x']]])
 
     guardar_pdf(armar_pliegos(cartas, imagenes), args.salida / 'pliegos_dorsos.pdf')
 
     combos = Counter((c['z'], c['x']) for c in cartas)
     print('Combinaciones:', dict(combos))
-    assert all(n == N_CARTAS // len(COMBOS) for n in combos.values())
+    assert len(combos) == 4 and all(n == N_CARTAS // 4 for n in combos.values())
     print(f'48 dorsos, manifiesto y pliegos → {args.salida}')
 
 

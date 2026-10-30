@@ -1,0 +1,8 @@
+{
+  "name": "miravos-colapsa",
+  "private": true,
+  "description": "¡Colapsá! — visor de dorsos de Mirá Vos y modo El Espía",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\""
+  }
+}
